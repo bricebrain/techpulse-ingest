@@ -54,7 +54,7 @@ def fetch_unembedded_articles(cur, limit: int = 500) -> list[dict]:
     """Get articles that have content but no embedding yet."""
     cur.execute(
         """
-        SELECT id, title, description, full_text
+        SELECT id, title, source_name, description, full_text
         FROM articles
         WHERE embedding IS NULL
           AND status IN ('new', 'scraped')

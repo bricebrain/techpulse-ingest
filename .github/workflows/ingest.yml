@@ -12,6 +12,7 @@ jobs:
 
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      HF_HUB_DISABLE_PROGRESS_BARS: "1"
 
     steps:
       - uses: actions/checkout@v4
@@ -24,6 +25,14 @@ jobs:
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
+      - name: Cache Hugging Face models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-ingest-models-v1-${{ runner.os }}
+          restore-keys: |
+            hf-ingest-models-v1-
+
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
@@ -32,4 +41,5 @@ jobs:
           NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
           GITHUB_TRIGGER_TOKEN: ${{ secrets.TRIGGER_TOKEN }}
           INTELLIGENCE_REPO: ${{ secrets.INTELLIGENCE_REPO }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: python -m pipeline

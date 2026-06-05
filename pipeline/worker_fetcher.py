@@ -11,6 +11,7 @@ import os
 import httpx
 
 from . import db
+from .text_cleaning import clean_text, parse_engagement
 
 log = logging.getLogger(__name__)
 
@@ -99,10 +100,11 @@ def sync_to_neon(articles: list[dict]) -> int:
                 continue
 
             article_id = db.gen_id()
-            title = article.get("title", "")
+            title = clean_text(article.get("title", ""))
             source_name = article.get("source_name", "unknown")
             theme = article.get("theme", "general")
-            content = article.get("content", "")
+            content = clean_text(article.get("content", ""))
+            external_score, comments_count = parse_engagement(article.get("content", ""))
             published_at = article.get("published_at")
 
             # Convert epoch ms to timestamp if needed
@@ -116,8 +118,9 @@ def sync_to_neon(articles: list[dict]) -> int:
             cur.execute(
                 """
                 INSERT INTO articles (id, title, url, source_name, source_type,
-                                      description, published_at, fetched_at, status)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), 'new')
+                                      description, published_at, fetched_at,
+                                      external_score, comments_count, status)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s, 'new')
                 ON CONFLICT (url) DO NOTHING
                 """,
                 (
@@ -128,6 +131,8 @@ def sync_to_neon(articles: list[dict]) -> int:
                     map_source_type(theme),
                     (content or "")[:500],
                     pub_ts,
+                    external_score,
+                    comments_count,
                 ),
             )
             inserted += 1

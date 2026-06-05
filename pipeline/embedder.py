@@ -1,10 +1,13 @@
-"""Batch embedding computation using sentence-transformers (bge-small-en)."""
+"""Batch embedding computation using sentence-transformers."""
 
 import logging
+import os
+
+from .text_cleaning import clean_text, select_representative_text
 
 log = logging.getLogger(__name__)
 
-MODEL_NAME = "BAAI/bge-small-en-v1.5"
+MODEL_NAME = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
 _model = None
 
 
@@ -23,12 +26,14 @@ def build_text_for_embedding(article: dict) -> str:
     """Build the text string to embed from article fields."""
     parts = []
     if article.get("title"):
-        parts.append(article["title"])
+        parts.append(f"Title: {clean_text(article['title'])}")
+    if article.get("source_name"):
+        parts.append(f"Source: {clean_text(article['source_name'])}")
     if article.get("description"):
-        parts.append(article["description"][:300])
+        parts.append(f"Summary: {clean_text(article['description'])[:700]}")
     if article.get("full_text"):
-        parts.append(article["full_text"][:500])
-    return " ".join(parts)
+        parts.append(f"Content: {select_representative_text(article['full_text'], 2500)}")
+    return "\n".join(part for part in parts if part.strip())
 
 
 def compute_embeddings(articles: list[dict], batch_size: int = 32) -> list[dict]:
@@ -43,7 +48,12 @@ def compute_embeddings(articles: list[dict], batch_size: int = 32) -> list[dict]
     texts = [build_text_for_embedding(a) for a in articles]
 
     log.info("Computing embeddings for %d articles...", len(texts))
-    embeddings = model.encode(texts, batch_size=batch_size, show_progress_bar=True)
+    embeddings = model.encode(
+        texts,
+        batch_size=batch_size,
+        show_progress_bar=True,
+        normalize_embeddings=True,
+    )
 
     results = []
     for article, emb in zip(articles, embeddings):

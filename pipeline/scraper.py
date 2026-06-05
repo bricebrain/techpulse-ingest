@@ -1,7 +1,10 @@
-"""Full article scraping using newspaper3k."""
+"""Full article scraping using trafilatura with newspaper3k fallback."""
 
 import logging
 from newspaper import Article
+import trafilatura
+
+from .text_cleaning import clean_text
 
 log = logging.getLogger(__name__)
 
@@ -12,16 +15,43 @@ def scrape_article(url: str) -> dict | None:
     Returns dict with keys: text, authors, top_image, keywords
     or None if extraction fails.
     """
+    downloaded = None
+    try:
+        downloaded = trafilatura.fetch_url(url)
+        if downloaded:
+            text = trafilatura.extract(
+                downloaded,
+                output_format="txt",
+                include_comments=False,
+                include_tables=False,
+                favor_recall=True,
+            )
+            text = clean_text(text)
+            if len(text) >= 80:
+                metadata = trafilatura.extract_metadata(downloaded)
+                return {
+                    "text": text[:15000],
+                    "authors": [],
+                    "top_image": getattr(metadata, "image", None) if metadata else None,
+                    "keywords": [],
+                }
+    except Exception as e:
+        log.warning("Trafilatura failed for %s: %s", url, e)
+
     try:
         article = Article(url, language="en")
-        article.download()
+        if downloaded:
+            article.download(input_html=downloaded)
+        else:
+            article.download()
         article.parse()
 
-        if not article.text or len(article.text) < 50:
+        text = clean_text(article.text)
+        if not text or len(text) < 50:
             return None
 
         return {
-            "text": article.text[:15000],
+            "text": text[:15000],
             "authors": article.authors,
             "top_image": article.top_image,
             "keywords": article.keywords,

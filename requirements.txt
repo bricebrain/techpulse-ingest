@@ -1,5 +1,6 @@
 psycopg2-binary>=2.9
 newspaper3k>=0.2.8
+trafilatura>=1.12
 lxml>=5.0
 lxml_html_clean>=0.1
 openai-whisper>=20240930
