@@ -1,0 +1,33 @@
+name: Migrate Neon to BGE-M3
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_reset:
+        description: "Type RESET_BGE_M3 to confirm deleting old clusters and 384-dim embeddings"
+        required: true
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Validate confirmation
+        run: |
+          test "${{ github.event.inputs.confirm_reset }}" = "RESET_BGE_M3"
+
+      - name: Install migration dependencies
+        run: pip install "psycopg2-binary>=2.9"
+
+      - name: Apply BGE-M3 migration
+        env:
+          NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+        run: python -m pipeline.run_sql_file migrations/002_bge_m3_embeddings.sql

@@ -7,7 +7,7 @@ from .text_cleaning import clean_text, select_representative_text
 
 log = logging.getLogger(__name__)
 
-MODEL_NAME = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
+MODEL_NAME = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-m3")
 _model = None
 
 
@@ -36,7 +36,7 @@ def build_text_for_embedding(article: dict) -> str:
     return "\n".join(part for part in parts if part.strip())
 
 
-def compute_embeddings(articles: list[dict], batch_size: int = 32) -> list[dict]:
+def compute_embeddings(articles: list[dict], batch_size: int = 16) -> list[dict]:
     """Compute embeddings for a batch of articles.
 
     Returns list of {id, embedding} dicts.

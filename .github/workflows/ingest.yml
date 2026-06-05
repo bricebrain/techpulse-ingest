@@ -13,6 +13,7 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       HF_HUB_DISABLE_PROGRESS_BARS: "1"
+      EMBEDDING_MODEL: BAAI/bge-m3
 
     steps:
       - uses: actions/checkout@v4
@@ -36,10 +37,16 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
+      - name: Preload Hugging Face embedding model
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python -m pipeline.hf_preload
+
       - name: Run ingestion pipeline
         env:
           NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
           GITHUB_TRIGGER_TOKEN: ${{ secrets.TRIGGER_TOKEN }}
           INTELLIGENCE_REPO: ${{ secrets.INTELLIGENCE_REPO }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          EMBEDDING_MODEL: BAAI/bge-m3
         run: python -m pipeline
