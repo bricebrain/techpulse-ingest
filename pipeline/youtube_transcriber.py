@@ -33,6 +33,7 @@ def download_audio(video_url: str, output_path: str) -> bool:
                 "--audio-quality", "5",
                 "--no-playlist",
                 "--max-filesize", "100M",
+                "--js-runtimes", "nodejs",
                 "-o", output_path,
                 video_url,
             ],
