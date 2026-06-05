@@ -1,7 +1,8 @@
 """Main ingestion pipeline — entry point for GitHub Actions.
 
 Steps:
-  1. Fetch new articles from Neon (inserted by Cloudflare Workers)
+  0. Fetch articles from Worker API → insert into Neon
+  1. Fetch new articles from Neon
   2. Scrape full text (newspaper3k)
   3. Transcribe YouTube videos (yt-dlp + Whisper)
   4. Compute embeddings (bge-small-en)
@@ -16,6 +17,7 @@ import sys
 import httpx
 
 from . import db
+from .worker_fetcher import run_worker_fetch
 from .scraper import scrape_batch
 from .youtube_transcriber import transcribe_youtube_articles
 from .embedder import compute_embeddings
@@ -71,6 +73,16 @@ def run():
     errors = []
 
     try:
+        # ── Step 0: Fetch articles from Worker API → Neon ──
+        log.info("Step 0: Fetching articles from Worker API...")
+        try:
+            fetched = run_worker_fetch()
+            stats["articles_fetched"] = fetched
+            log.info("Fetched %d articles from Worker API into Neon", fetched)
+        except Exception as e:
+            log.error("Worker fetch error: %s", e)
+            errors.append(f"worker_fetch: {e}")
+
         # ── Step 1: Fetch new articles from Neon ──
         log.info("Step 1: Fetching new articles from Neon...")
         with db.get_cursor() as cur:
