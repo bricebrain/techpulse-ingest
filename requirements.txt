@@ -1,0 +1,11 @@
+psycopg2-binary>=2.9
+newspaper3k>=0.2.8
+lxml>=5.0
+lxml_html_clean>=0.1
+openai-whisper>=20240930
+yt-dlp>=2024.0
+sentence-transformers>=3.0
+torch>=2.0
+numpy>=1.26
+httpx>=0.27
+python-dotenv>=1.0
