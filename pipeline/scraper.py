@@ -4,6 +4,7 @@ import logging
 from newspaper import Article
 import trafilatura
 
+from .render_extractor import extract_article_remote
 from .text_cleaning import clean_text
 
 log = logging.getLogger(__name__)
@@ -72,12 +73,18 @@ def scrape_batch(articles: list[dict]) -> list[dict]:
             continue
 
         attempted += 1
-        data = scrape_article(url)
+        data = extract_article_remote(article)
+        if data:
+            log.info("Extracted via Render: %s", article["title"][:60])
+        else:
+            data = scrape_article(url)
+
         if data:
             results.append({
                 "id": article["id"],
                 "full_text": data["text"],
                 "image_url": data["top_image"],
+                "extraction_method": data.get("method", "local_scraper"),
             })
             log.info("Scraped: %s", article["title"][:60])
         else:

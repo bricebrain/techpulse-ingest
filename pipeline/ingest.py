@@ -104,7 +104,11 @@ def run():
             with db.get_cursor() as cur:
                 for item in scraped:
                     db.update_article_full_text(
-                        cur, item["id"], item["full_text"], item.get("image_url")
+                        cur,
+                        item["id"],
+                        item["full_text"],
+                        item.get("image_url"),
+                        item.get("extraction_method", "local_scraper"),
                     )
                 for article in new_articles:
                     url = article.get("url") or ""

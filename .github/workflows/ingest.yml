@@ -49,4 +49,6 @@ jobs:
           INTELLIGENCE_REPO: ${{ secrets.INTELLIGENCE_REPO }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           EMBEDDING_MODEL: BAAI/bge-m3
+          TECHPULSE_RENDER_API_URL: ${{ secrets.TECHPULSE_RENDER_API_URL }}
+          TECHPULSE_RENDER_API_SECRET: ${{ secrets.TECHPULSE_RENDER_API_SECRET }}
         run: python -m pipeline

@@ -401,3 +401,26 @@ CREATE INDEX IF NOT EXISTS idx_pipeline_jobs_target
   ON pipeline_jobs(target_type, target_id);
 CREATE INDEX IF NOT EXISTS idx_pipeline_jobs_run
   ON pipeline_jobs(run_id);
+
+-- ============================================================
+-- 16. Source extraction rules
+-- ============================================================
+CREATE TABLE IF NOT EXISTS source_extraction_rules (
+  id TEXT PRIMARY KEY,
+  source_name TEXT NOT NULL UNIQUE,
+  strategy TEXT NOT NULL DEFAULT 'trafilatura_fastapi',
+  user_agent TEXT,
+  use_fastapi BOOLEAN DEFAULT true,
+  use_local_fallback BOOLEAN DEFAULT true,
+  timeout_ms INTEGER DEFAULT 20000,
+  max_retries INTEGER DEFAULT 2,
+  requires_browser BOOLEAN DEFAULT false,
+  is_blocked_often BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_source_extraction_rules_strategy
+  ON source_extraction_rules(strategy);
+CREATE INDEX IF NOT EXISTS idx_source_extraction_rules_fastapi
+  ON source_extraction_rules(use_fastapi);

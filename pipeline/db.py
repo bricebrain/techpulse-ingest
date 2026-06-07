@@ -39,7 +39,7 @@ def fetch_new_articles(cur, limit: int = 200) -> list[dict]:
     """Get articles that need processing (status='new')."""
     cur.execute(
         """
-        SELECT id, title, url, source_type, description, image_url
+        SELECT id, title, url, source_name, source_type, description, image_url
         FROM articles
         WHERE status = 'new'
         ORDER BY fetched_at DESC
@@ -66,7 +66,13 @@ def fetch_unembedded_articles(cur, limit: int = 500) -> list[dict]:
     return cur.fetchall()
 
 
-def update_article_full_text(cur, article_id: str, full_text: str, image_url: str | None = None):
+def update_article_full_text(
+    cur,
+    article_id: str,
+    full_text: str,
+    image_url: str | None = None,
+    extraction_method: str = "local_scraper",
+):
     if image_url:
         cur.execute(
             """
@@ -76,13 +82,13 @@ def update_article_full_text(cur, article_id: str, full_text: str, image_url: st
                 status = 'scraped',
                 pipeline_status = 'extracted',
                 extraction_status = 'extracted',
-                extraction_method = COALESCE(extraction_method, 'local_scraper'),
+                extraction_method = %s,
                 extracted_at = NOW(),
                 last_error = NULL,
                 last_processed_at = NOW()
             WHERE id = %s
             """,
-            (full_text, image_url, article_id),
+            (full_text, image_url, extraction_method, article_id),
         )
     else:
         cur.execute(
@@ -92,13 +98,13 @@ def update_article_full_text(cur, article_id: str, full_text: str, image_url: st
                 status = 'scraped',
                 pipeline_status = 'extracted',
                 extraction_status = 'extracted',
-                extraction_method = COALESCE(extraction_method, 'local_scraper'),
+                extraction_method = %s,
                 extracted_at = NOW(),
                 last_error = NULL,
                 last_processed_at = NOW()
             WHERE id = %s
             """,
-            (full_text, article_id),
+            (full_text, extraction_method, article_id),
         )
 
 
