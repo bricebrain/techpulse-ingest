@@ -144,6 +144,7 @@ def upload_model_to_r2(model_id: str) -> bool:
 
 
 def preload_model(model_id: str, token: str | None, attempts: int = 4) -> None:
+    refresh_r2_cache = env_flag("TECHPULSE_HF_DOWNLOAD_MISSING", default=False)
     try:
         snapshot_download(
             repo_id=model_id,
@@ -151,14 +152,18 @@ def preload_model(model_id: str, token: str | None, attempts: int = 4) -> None:
             local_files_only=True,
         )
         log.info("%s already available in local cache", model_id)
+        if refresh_r2_cache:
+            upload_model_to_r2(model_id)
         return
     except LocalEntryNotFoundError:
         log.info("%s not fully cached locally", model_id)
 
     if restore_model_from_r2(model_id):
+        if refresh_r2_cache:
+            upload_model_to_r2(model_id)
         return
 
-    if not env_flag("TECHPULSE_HF_DOWNLOAD_MISSING", default=False):
+    if not refresh_r2_cache:
         log.warning("%s missing from local and R2 cache; Hugging Face download disabled", model_id)
         return
 
