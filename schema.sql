@@ -37,6 +37,9 @@ CREATE TABLE IF NOT EXISTS articles (
   embedding_status TEXT,
   clustering_status TEXT,
   analysis_status TEXT,
+  llm_enrichment_status TEXT,
+  llm_enriched_at TIMESTAMPTZ,
+  llm_enrichment_model TEXT,
   extraction_method TEXT,
   extracted_at TIMESTAMPTZ,
   embedded_at TIMESTAMPTZ,
@@ -73,6 +76,8 @@ CREATE INDEX IF NOT EXISTS idx_articles_clustering_status
   ON articles(clustering_status);
 CREATE INDEX IF NOT EXISTS idx_articles_analysis_status
   ON articles(analysis_status);
+CREATE INDEX IF NOT EXISTS idx_articles_llm_enrichment_status
+  ON articles(llm_enrichment_status);
 
 -- ============================================================
 -- 2. Clusters — grouped stories
@@ -230,7 +235,61 @@ CREATE INDEX IF NOT EXISTS idx_analyses_target
   ON ai_analyses(target_type, target_id);
 
 -- ============================================================
--- 10. Trend snapshots — daily metrics for tracking growth
+-- 10. Article Intelligence — LLM-normalized article metadata
+-- ============================================================
+CREATE TABLE IF NOT EXISTS article_intelligence (
+  id TEXT PRIMARY KEY,
+  article_id TEXT NOT NULL UNIQUE REFERENCES articles(id) ON DELETE CASCADE,
+  model_provider TEXT,
+  model_name TEXT,
+  language TEXT,
+  canonical_title TEXT,
+  summary TEXT,
+  article_type TEXT,
+  primary_domain TEXT,
+  topic TEXT,
+  subtopics JSONB DEFAULT '[]'::jsonb,
+  event_fingerprint TEXT,
+  event_date DATE,
+  entities JSONB DEFAULT '[]'::jsonb,
+  companies JSONB DEFAULT '[]'::jsonb,
+  people JSONB DEFAULT '[]'::jsonb,
+  products JSONB DEFAULT '[]'::jsonb,
+  sectors JSONB DEFAULT '[]'::jsonb,
+  countries JSONB DEFAULT '[]'::jsonb,
+  keywords JSONB DEFAULT '[]'::jsonb,
+  tags JSONB DEFAULT '[]'::jsonb,
+  sentiment TEXT,
+  sentiment_score FLOAT,
+  tech_impact TEXT,
+  business_impact TEXT,
+  finance_impact TEXT,
+  market_impact TEXT,
+  quality_score INTEGER,
+  relevance_score INTEGER,
+  novelty_score INTEGER,
+  time_sensitivity TEXT,
+  should_cluster BOOLEAN DEFAULT true,
+  cluster_hint TEXT,
+  confidence FLOAT,
+  raw JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_article_intelligence_article
+  ON article_intelligence(article_id);
+CREATE INDEX IF NOT EXISTS idx_article_intelligence_domain
+  ON article_intelligence(primary_domain);
+CREATE INDEX IF NOT EXISTS idx_article_intelligence_topic
+  ON article_intelligence(topic);
+CREATE INDEX IF NOT EXISTS idx_article_intelligence_fingerprint
+  ON article_intelligence(event_fingerprint);
+CREATE INDEX IF NOT EXISTS idx_article_intelligence_relevance
+  ON article_intelligence(relevance_score DESC);
+
+-- ============================================================
+-- 11. Trend snapshots — daily metrics for tracking growth
 -- ============================================================
 CREATE TABLE IF NOT EXISTS trend_snapshots (
   id TEXT PRIMARY KEY,
@@ -251,7 +310,7 @@ CREATE INDEX IF NOT EXISTS idx_trends_entity
   ON trend_snapshots(entity_id);
 
 -- ============================================================
--- 11. Podcasts
+-- 12. Podcasts
 -- ============================================================
 CREATE TABLE IF NOT EXISTS podcasts (
   id TEXT PRIMARY KEY,
@@ -267,7 +326,7 @@ CREATE TABLE IF NOT EXISTS podcasts (
 );
 
 -- ============================================================
--- 12. Alerts — user-defined notification rules
+-- 13. Alerts — user-defined notification rules
 -- ============================================================
 CREATE TABLE IF NOT EXISTS alerts (
   id TEXT PRIMARY KEY,
@@ -280,7 +339,7 @@ CREATE TABLE IF NOT EXISTS alerts (
 );
 
 -- ============================================================
--- 13. Sources config — migrated from D1
+-- 14. Sources config — migrated from D1
 -- ============================================================
 CREATE TABLE IF NOT EXISTS sources (
   id TEXT PRIMARY KEY,
@@ -297,7 +356,7 @@ CREATE TABLE IF NOT EXISTS sources (
 );
 
 -- ============================================================
--- 14. Pipeline runs — track each pipeline execution
+-- 15. Pipeline runs — track each pipeline execution
 -- ============================================================
 CREATE TABLE IF NOT EXISTS pipeline_runs (
   id TEXT PRIMARY KEY,
@@ -307,6 +366,7 @@ CREATE TABLE IF NOT EXISTS pipeline_runs (
   completed_at TIMESTAMPTZ,
   articles_fetched INTEGER DEFAULT 0,
   articles_embedded INTEGER DEFAULT 0,
+  articles_enriched INTEGER DEFAULT 0,
   clusters_created INTEGER DEFAULT 0,
   clusters_updated INTEGER DEFAULT 0,
   analyses_generated INTEGER DEFAULT 0,
