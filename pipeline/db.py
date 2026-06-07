@@ -69,21 +69,87 @@ def fetch_unembedded_articles(cur, limit: int = 500) -> list[dict]:
 def update_article_full_text(cur, article_id: str, full_text: str, image_url: str | None = None):
     if image_url:
         cur.execute(
-            "UPDATE articles SET full_text = %s, image_url = %s, status = 'scraped' WHERE id = %s",
+            """
+            UPDATE articles
+            SET full_text = %s,
+                image_url = %s,
+                status = 'scraped',
+                pipeline_status = 'extracted',
+                extraction_status = 'extracted',
+                extraction_method = COALESCE(extraction_method, 'local_scraper'),
+                extracted_at = NOW(),
+                last_error = NULL,
+                last_processed_at = NOW()
+            WHERE id = %s
+            """,
             (full_text, image_url, article_id),
         )
     else:
         cur.execute(
-            "UPDATE articles SET full_text = %s, status = 'scraped' WHERE id = %s",
+            """
+            UPDATE articles
+            SET full_text = %s,
+                status = 'scraped',
+                pipeline_status = 'extracted',
+                extraction_status = 'extracted',
+                extraction_method = COALESCE(extraction_method, 'local_scraper'),
+                extracted_at = NOW(),
+                last_error = NULL,
+                last_processed_at = NOW()
+            WHERE id = %s
+            """,
             (full_text, article_id),
         )
 
 
 def update_article_embedding(cur, article_id: str, embedding: list[float]):
     embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
+    model_name = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-m3")
     cur.execute(
-        "UPDATE articles SET embedding = %s::vector, status = 'processed' WHERE id = %s",
-        (embedding_str, article_id),
+        """
+        UPDATE articles
+        SET embedding = %s::vector,
+            status = 'processed',
+            pipeline_status = 'embedded',
+            embedding_status = 'embedded',
+            embedding_model = %s,
+            embedding_dimensions = %s,
+            embedded_at = NOW(),
+            last_error = NULL,
+            last_processed_at = NOW()
+        WHERE id = %s
+        """,
+        (embedding_str, model_name, len(embedding), article_id),
+    )
+
+
+def mark_article_extraction_failed(cur, article_id: str, error: str):
+    cur.execute(
+        """
+        UPDATE articles
+        SET extraction_status = 'failed',
+            pipeline_status = 'extraction_failed',
+            last_error = %s,
+            retry_count = COALESCE(retry_count, 0) + 1,
+            last_processed_at = NOW()
+        WHERE id = %s
+        """,
+        (error[:1000], article_id),
+    )
+
+
+def mark_article_embedding_failed(cur, article_id: str, error: str):
+    cur.execute(
+        """
+        UPDATE articles
+        SET embedding_status = 'failed',
+            pipeline_status = 'embedding_failed',
+            last_error = %s,
+            retry_count = COALESCE(retry_count, 0) + 1,
+            last_processed_at = NOW()
+        WHERE id = %s
+        """,
+        (error[:1000], article_id),
     )
 
 

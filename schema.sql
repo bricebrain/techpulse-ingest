@@ -32,6 +32,19 @@ CREATE TABLE IF NOT EXISTS articles (
   cluster_id TEXT,
   internal_score INTEGER DEFAULT 0,
   status TEXT DEFAULT 'new',
+  pipeline_status TEXT,
+  extraction_status TEXT,
+  embedding_status TEXT,
+  clustering_status TEXT,
+  analysis_status TEXT,
+  extraction_method TEXT,
+  extracted_at TIMESTAMPTZ,
+  embedded_at TIMESTAMPTZ,
+  embedding_model TEXT,
+  embedding_dimensions INTEGER,
+  last_error TEXT,
+  retry_count INTEGER DEFAULT 0,
+  last_processed_at TIMESTAMPTZ,
   image_url TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -50,6 +63,16 @@ CREATE INDEX IF NOT EXISTS idx_articles_url
   ON articles(url);
 CREATE INDEX IF NOT EXISTS idx_articles_title_trgm
   ON articles USING gin (title gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_articles_pipeline_status
+  ON articles(pipeline_status);
+CREATE INDEX IF NOT EXISTS idx_articles_extraction_status
+  ON articles(extraction_status);
+CREATE INDEX IF NOT EXISTS idx_articles_embedding_status
+  ON articles(embedding_status);
+CREATE INDEX IF NOT EXISTS idx_articles_clustering_status
+  ON articles(clustering_status);
+CREATE INDEX IF NOT EXISTS idx_articles_analysis_status
+  ON articles(analysis_status);
 
 -- ============================================================
 -- 2. Clusters — grouped stories
@@ -290,3 +313,31 @@ CREATE TABLE IF NOT EXISTS pipeline_runs (
   errors JSONB DEFAULT '[]',
   duration_seconds INTEGER
 );
+
+CREATE TABLE IF NOT EXISTS pipeline_jobs (
+  id TEXT PRIMARY KEY,
+  run_id TEXT REFERENCES pipeline_runs(id) ON DELETE SET NULL,
+  job_type TEXT NOT NULL,
+  target_type TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  priority INTEGER DEFAULT 0,
+  attempts INTEGER DEFAULT 0,
+  max_attempts INTEGER DEFAULT 3,
+  error_message TEXT,
+  metadata JSONB DEFAULT '{}'::jsonb,
+  scheduled_at TIMESTAMPTZ DEFAULT NOW(),
+  started_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_pipeline_jobs_status
+  ON pipeline_jobs(status);
+CREATE INDEX IF NOT EXISTS idx_pipeline_jobs_type_status
+  ON pipeline_jobs(job_type, status);
+CREATE INDEX IF NOT EXISTS idx_pipeline_jobs_target
+  ON pipeline_jobs(target_type, target_id);
+CREATE INDEX IF NOT EXISTS idx_pipeline_jobs_run
+  ON pipeline_jobs(run_id);

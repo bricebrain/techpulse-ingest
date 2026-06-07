@@ -119,8 +119,12 @@ def sync_to_neon(articles: list[dict]) -> int:
                 """
                 INSERT INTO articles (id, title, url, source_name, source_type,
                                       description, published_at, fetched_at,
-                                      external_score, comments_count, status)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s, 'new')
+                                      external_score, comments_count, status,
+                                      pipeline_status, extraction_status,
+                                      embedding_status, clustering_status,
+                                      analysis_status, retry_count)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s, 'new',
+                        'discovered', 'pending', 'pending', 'pending', 'pending', 0)
                 ON CONFLICT (url) DO NOTHING
                 """,
                 (

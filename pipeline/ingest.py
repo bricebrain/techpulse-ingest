@@ -100,11 +100,16 @@ def run():
         log.info("Step 2: Scraping full articles...")
         try:
             scraped = scrape_batch(new_articles)
+            scraped_ids = {item["id"] for item in scraped}
             with db.get_cursor() as cur:
                 for item in scraped:
                     db.update_article_full_text(
                         cur, item["id"], item["full_text"], item.get("image_url")
                     )
+                for article in new_articles:
+                    url = article.get("url") or ""
+                    if article["id"] not in scraped_ids and not any(skip in url for skip in ["youtube.com", "youtu.be", "reddit.com"]):
+                        db.mark_article_extraction_failed(cur, article["id"], "local_scraper_returned_no_text")
             log.info("Scraped %d articles", len(scraped))
         except Exception as e:
             log.error("Scraping error: %s", e)
@@ -129,14 +134,21 @@ def run():
                 articles_to_embed = db.fetch_unembedded_articles(cur, limit=500)
 
             embedded = compute_embeddings(articles_to_embed)
+            embedded_ids = {item["id"] for item in embedded}
             with db.get_cursor() as cur:
                 for item in embedded:
                     db.update_article_embedding(cur, item["id"], item["embedding"])
+                for article in articles_to_embed:
+                    if article["id"] not in embedded_ids:
+                        db.mark_article_embedding_failed(cur, article["id"], "embedding_model_returned_no_vector")
             stats["articles_embedded"] = len(embedded)
             log.info("Embedded %d articles", len(embedded))
         except Exception as e:
             log.error("Embedding error: %s", e)
             errors.append(f"embedding: {e}")
+            with db.get_cursor() as cur:
+                for article in articles_to_embed if 'articles_to_embed' in locals() else []:
+                    db.mark_article_embedding_failed(cur, article["id"], str(e))
 
         # ── Step 5: Finalize ──
         with db.get_cursor() as cur:

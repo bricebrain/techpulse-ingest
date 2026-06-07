@@ -64,11 +64,14 @@ def scrape_article(url: str) -> dict | None:
 def scrape_batch(articles: list[dict]) -> list[dict]:
     """Scrape a batch of articles, returning results with article IDs."""
     results = []
+    attempted = 0
+    failed_ids = []
     for article in articles:
         url = article["url"]
         if any(skip in url for skip in ["youtube.com", "youtu.be", "reddit.com"]):
             continue
 
+        attempted += 1
         data = scrape_article(url)
         if data:
             results.append({
@@ -77,6 +80,10 @@ def scrape_batch(articles: list[dict]) -> list[dict]:
                 "image_url": data["top_image"],
             })
             log.info("Scraped: %s", article["title"][:60])
+        else:
+            failed_ids.append(article["id"])
 
-    log.info("Scraped %d / %d articles", len(results), len(articles))
+    log.info("Scraped %d / %d attempted articles", len(results), attempted)
+    for article_id in failed_ids:
+        log.warning("Scraping failed for article id=%s", article_id)
     return results
