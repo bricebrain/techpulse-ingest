@@ -99,8 +99,12 @@ def run():
         # ── Step 2: Scrape full text ──
         log.info("Step 2: Scraping full articles...")
         try:
-            scraped = scrape_batch(new_articles)
+            with db.get_cursor() as cur:
+                extraction_rules = db.fetch_source_extraction_rules(cur)
+
+            scraped, skipped_extractions = scrape_batch(new_articles, extraction_rules)
             scraped_ids = {item["id"] for item in scraped}
+            skipped_ids = set(skipped_extractions)
             with db.get_cursor() as cur:
                 for item in scraped:
                     db.update_article_full_text(
@@ -110,9 +114,15 @@ def run():
                         item.get("image_url"),
                         item.get("extraction_method", "local_scraper"),
                     )
+                for article_id, strategy in skipped_extractions.items():
+                    db.mark_article_extraction_skipped(
+                        cur,
+                        article_id,
+                        strategy,
+                        f"source_extraction_rule:{strategy}",
+                    )
                 for article in new_articles:
-                    url = article.get("url") or ""
-                    if article["id"] not in scraped_ids and not any(skip in url for skip in ["youtube.com", "youtu.be", "reddit.com"]):
+                    if article["id"] not in scraped_ids and article["id"] not in skipped_ids:
                         db.mark_article_extraction_failed(cur, article["id"], "local_scraper_returned_no_text")
             log.info("Scraped %d articles", len(scraped))
         except Exception as e:
@@ -125,7 +135,12 @@ def run():
             transcribed = transcribe_youtube_articles(new_articles, max_videos=8)
             with db.get_cursor() as cur:
                 for item in transcribed:
-                    db.update_article_full_text(cur, item["id"], item["full_text"])
+                    db.update_article_full_text(
+                        cur,
+                        item["id"],
+                        item["full_text"],
+                        extraction_method="youtube_transcript",
+                    )
             log.info("Transcribed %d videos", len(transcribed))
         except Exception as e:
             log.error("Transcription error: %s", e)

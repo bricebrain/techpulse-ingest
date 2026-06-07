@@ -9,6 +9,38 @@ from .text_cleaning import clean_text
 
 log = logging.getLogger(__name__)
 
+SKIP_SCRAPE_STRATEGIES = {
+    "metadata_only",
+    "rss_content",
+    "manual_parser",
+    "youtube_transcript",
+}
+
+
+def source_key(article: dict) -> str:
+    return (article.get("source_name") or "").lower().strip()
+
+
+def extraction_rule(article: dict, rules: dict[str, dict] | None) -> dict:
+    if not rules:
+        return {}
+    return rules.get(source_key(article), {})
+
+
+def infer_strategy(article: dict, rule: dict) -> str:
+    url = article.get("url") or ""
+    if any(skip in url for skip in ["youtube.com", "youtu.be"]):
+        return "youtube_transcript"
+    if "reddit.com" in url:
+        return "manual_parser"
+    return rule.get("strategy") or "trafilatura_fastapi"
+
+
+def should_skip_scraping(strategy: str, rule: dict) -> bool:
+    if strategy in SKIP_SCRAPE_STRATEGIES:
+        return True
+    return rule and not rule.get("use_fastapi", True) and not rule.get("use_local_fallback", True)
+
 
 def scrape_article(url: str) -> dict | None:
     """Extract full text and metadata from an article URL.
@@ -62,21 +94,30 @@ def scrape_article(url: str) -> dict | None:
         return None
 
 
-def scrape_batch(articles: list[dict]) -> list[dict]:
+def scrape_batch(
+    articles: list[dict],
+    extraction_rules: dict[str, dict] | None = None,
+) -> tuple[list[dict], dict[str, str]]:
     """Scrape a batch of articles, returning results with article IDs."""
     results = []
+    skipped = {}
     attempted = 0
     failed_ids = []
     for article in articles:
         url = article["url"]
-        if any(skip in url for skip in ["youtube.com", "youtu.be", "reddit.com"]):
+        rule = extraction_rule(article, extraction_rules)
+        strategy = infer_strategy(article, rule)
+
+        if should_skip_scraping(strategy, rule):
+            skipped[article["id"]] = strategy
+            log.info("Extraction skipped by strategy=%s: %s", strategy, article["title"][:60])
             continue
 
         attempted += 1
-        data = extract_article_remote(article)
+        data = extract_article_remote(article) if rule.get("use_fastapi", True) else None
         if data:
             log.info("Extracted via Render: %s", article["title"][:60])
-        else:
+        elif rule.get("use_local_fallback", True):
             data = scrape_article(url)
 
         if data:
@@ -93,4 +134,4 @@ def scrape_batch(articles: list[dict]) -> list[dict]:
     log.info("Scraped %d / %d attempted articles", len(results), attempted)
     for article_id in failed_ids:
         log.warning("Scraping failed for article id=%s", article_id)
-    return results
+    return results, skipped

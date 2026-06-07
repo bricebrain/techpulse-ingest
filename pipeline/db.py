@@ -66,6 +66,21 @@ def fetch_unembedded_articles(cur, limit: int = 500) -> list[dict]:
     return cur.fetchall()
 
 
+def fetch_source_extraction_rules(cur) -> dict[str, dict]:
+    cur.execute(
+        """
+        SELECT source_name, strategy, use_fastapi, use_local_fallback,
+               timeout_ms, max_retries, requires_browser, is_blocked_often
+        FROM source_extraction_rules
+        """
+    )
+    return {
+        row["source_name"].lower().strip(): row
+        for row in cur.fetchall()
+        if row.get("source_name")
+    }
+
+
 def update_article_full_text(
     cur,
     article_id: str,
@@ -141,6 +156,21 @@ def mark_article_extraction_failed(cur, article_id: str, error: str):
         WHERE id = %s
         """,
         (error[:1000], article_id),
+    )
+
+
+def mark_article_extraction_skipped(cur, article_id: str, method: str, reason: str):
+    cur.execute(
+        """
+        UPDATE articles
+        SET extraction_status = 'skipped',
+            pipeline_status = 'extraction_skipped',
+            extraction_method = %s,
+            last_error = %s,
+            last_processed_at = NOW()
+        WHERE id = %s
+        """,
+        (method, reason[:1000], article_id),
     )
 
 
