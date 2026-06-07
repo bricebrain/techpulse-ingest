@@ -2,6 +2,7 @@
 
 import logging
 import os
+import time
 
 import httpx
 
@@ -22,9 +23,16 @@ def render_api_secret() -> str | None:
 
 def render_timeout() -> float:
     try:
-        return float(os.getenv("TECHPULSE_RENDER_EXTRACT_TIMEOUT", "20"))
+        return float(os.getenv("TECHPULSE_RENDER_EXTRACT_TIMEOUT", "45"))
     except ValueError:
-        return 20.0
+        return 45.0
+
+
+def render_max_retries() -> int:
+    try:
+        return max(1, int(os.getenv("TECHPULSE_RENDER_EXTRACT_RETRIES", "2")))
+    except ValueError:
+        return 2
 
 
 def extract_article_remote(article: dict) -> dict | None:
@@ -37,21 +45,30 @@ def extract_article_remote(article: dict) -> dict | None:
     if secret:
         headers["Authorization"] = f"Bearer {secret}"
 
-    try:
-        resp = httpx.post(
-            f"{base_url}/api/v1/extract/article",
-            headers=headers,
-            json={
-                "article_id": article["id"],
-                "url": article["url"],
-                "source": article.get("source_name"),
-            },
-            timeout=render_timeout(),
-        )
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception as exc:
-        log.warning("Render extraction request failed for %s: %s", article["url"], exc)
+    data = None
+    last_error = None
+    for attempt in range(1, render_max_retries() + 1):
+        try:
+            resp = httpx.post(
+                f"{base_url}/api/v1/extract/article",
+                headers=headers,
+                json={
+                    "article_id": article["id"],
+                    "url": article["url"],
+                    "source": article.get("source_name"),
+                },
+                timeout=render_timeout(),
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            break
+        except Exception as exc:
+            last_error = exc
+            if attempt < render_max_retries():
+                time.sleep(2 * attempt)
+
+    if data is None:
+        log.warning("Render extraction request failed for %s: %s", article["url"], last_error)
         return None
 
     if not data.get("success"):

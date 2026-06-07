@@ -40,6 +40,7 @@ jobs:
       - name: Preload Hugging Face embedding model
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HUGGINGFACEHUB_API_TOKEN: ${{ secrets.HF_TOKEN }}
         run: python -m pipeline.hf_preload
 
       - name: Run ingestion pipeline
@@ -48,7 +49,10 @@ jobs:
           GITHUB_TRIGGER_TOKEN: ${{ secrets.TRIGGER_TOKEN }}
           INTELLIGENCE_REPO: ${{ secrets.INTELLIGENCE_REPO }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HUGGINGFACEHUB_API_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_HUB_OFFLINE: "1"
           EMBEDDING_MODEL: BAAI/bge-m3
           TECHPULSE_RENDER_API_URL: ${{ secrets.TECHPULSE_RENDER_API_URL }}
           TECHPULSE_RENDER_API_SECRET: ${{ secrets.TECHPULSE_RENDER_API_SECRET }}
+          TECHPULSE_RENDER_EXTRACT_TIMEOUT: "45"
         run: python -m pipeline
