@@ -135,15 +135,18 @@ def upload_model_to_r2(model_id: str) -> bool:
 
     key = r2_key(model_id)
     with NamedTemporaryFile(suffix=".tar.gz") as archive:
+        log.info("Creating R2 archive for %s from %s", model_id, cache_dir)
         with tarfile.open(archive.name, "w:gz", dereference=False) as tar:
             tar.add(cache_dir, arcname=cache_dir.name)
         archive_size = Path(archive.name).stat().st_size
+        log.info("R2 archive ready for %s: %.1f MB", model_id, archive_size / 1_000_000)
         if archive_size >= 4_800_000_000:
             raise RuntimeError(
                 f"{model_id} archive is {archive_size} bytes; "
                 "R2 multipart upload permission is required"
             )
 
+        log.info("Uploading %s to R2 bucket=%s key=%s", model_id, bucket, key)
         with open(archive.name, "rb") as body:
             client.put_object(Bucket=bucket, Key=key, Body=body)
 
