@@ -21,6 +21,7 @@ from .worker_fetcher import run_worker_fetch
 from .scraper import scrape_batch
 from .youtube_transcriber import transcribe_youtube_articles
 from .embedder import compute_embeddings
+from .retention import retention_enabled, run_retention
 
 logging.basicConfig(
     level=logging.INFO,
@@ -168,6 +169,14 @@ def run():
             with db.get_cursor() as cur:
                 for article in articles_to_embed if 'articles_to_embed' in locals() else []:
                     db.mark_article_embedding_failed(cur, article["id"], str(e))
+
+        # ── Step 4b: Rétention / purge (garde Neon sous le free tier) ──
+        if retention_enabled():
+            try:
+                with db.get_cursor() as cur:
+                    stats["retention"] = run_retention(cur)
+            except Exception as e:
+                log.warning("Retention step skipped after error: %s", e, exc_info=True)
 
         # ── Step 5: Finalize ──
         with db.get_cursor() as cur:
