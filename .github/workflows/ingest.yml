@@ -1,6 +1,9 @@
 name: TechPulse Ingestion
 
 on:
+  push:
+    branches:
+      - main
   schedule:
     - cron: '0 6,12,18 * * *'     # 3x/day at 6h, 12h, 18h UTC
   workflow_dispatch:
