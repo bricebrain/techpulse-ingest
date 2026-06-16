@@ -40,7 +40,7 @@ def fetch_articles_from_worker(hours: int = 12, limit: int = 200) -> list[dict]:
         log.error("Failed to fetch recent articles: %s", e)
 
     # Also fetch by theme to get more coverage
-    themes = ["general", "business", "ai", "finance"]
+    themes = ["general", "business", "ai", "finance", "science"]
     for theme in themes:
         try:
             resp = httpx.get(
@@ -77,6 +77,7 @@ def map_source_type(theme: str) -> str:
         "business": "rss",
         "finance": "rss",
         "ai": "rss",
+        "science": "rss",
         "youtube": "youtube",
     }
     return mapping.get(theme, "rss")
