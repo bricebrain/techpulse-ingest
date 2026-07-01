@@ -65,6 +65,7 @@ jobs:
 
       - name: Run ingestion pipeline
         env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
           GITHUB_TRIGGER_TOKEN: ${{ secrets.TRIGGER_TOKEN }}
           INTELLIGENCE_REPO: ${{ secrets.INTELLIGENCE_REPO }}

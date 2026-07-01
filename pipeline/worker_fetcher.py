@@ -40,7 +40,7 @@ def fetch_articles_from_worker(hours: int = 12, limit: int = 200) -> list[dict]:
         log.error("Failed to fetch recent articles: %s", e)
 
     # Also fetch by theme to get more coverage
-    themes = ["general", "business", "ai", "finance", "science"]
+    themes = ["general", "business", "ai", "finance", "science", "podcast"]
     for theme in themes:
         try:
             resp = httpx.get(
@@ -79,6 +79,7 @@ def map_source_type(theme: str) -> str:
         "ai": "rss",
         "science": "rss",
         "youtube": "youtube",
+        "podcast": "podcast",
     }
     return mapping.get(theme, "rss")
 
@@ -107,6 +108,8 @@ def sync_to_neon(articles: list[dict]) -> int:
             content = clean_text(article.get("content", ""))
             external_score, comments_count = parse_engagement(article.get("content", ""))
             published_at = article.get("published_at")
+            audio_url = article.get("audio_url")
+            audio_duration = article.get("audio_duration")
 
             # Convert epoch ms to timestamp if needed
             pub_ts = None
@@ -123,9 +126,11 @@ def sync_to_neon(articles: list[dict]) -> int:
                                       external_score, comments_count, status,
                                       pipeline_status, extraction_status,
                                       embedding_status, clustering_status,
-                                      analysis_status, retry_count)
+                                      analysis_status, retry_count,
+                                      audio_url, audio_duration)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s, 'new',
-                        'discovered', 'pending', 'pending', 'pending', 'pending', 0)
+                        'discovered', 'pending', 'pending', 'pending', 'pending', 0,
+                        %s, %s)
                 ON CONFLICT (url) DO NOTHING
                 """,
                 (
@@ -138,6 +143,8 @@ def sync_to_neon(articles: list[dict]) -> int:
                     pub_ts,
                     external_score,
                     comments_count,
+                    audio_url,
+                    audio_duration,
                 ),
             )
             inserted += 1

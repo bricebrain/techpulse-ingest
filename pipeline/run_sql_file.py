@@ -1,4 +1,4 @@
-"""Run a SQL migration file against Neon."""
+"""Run a SQL migration file against PostgreSQL (Neon or Supabase)."""
 
 import os
 import sys
@@ -15,8 +15,8 @@ def main() -> None:
     if not sql_path.exists():
         raise SystemExit(f"SQL file not found: {sql_path}")
 
-    if "NEON_DATABASE_URL" not in os.environ:
-        raise SystemExit("NEON_DATABASE_URL is required")
+    if not (os.environ.get("DATABASE_URL") or os.environ.get("NEON_DATABASE_URL")):
+        raise SystemExit("DATABASE_URL (or NEON_DATABASE_URL) is required")
 
     sql = sql_path.read_text(encoding="utf-8")
     with db.get_cursor() as cur:

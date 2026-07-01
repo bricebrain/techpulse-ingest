@@ -5,6 +5,7 @@ Steps:
   1. Fetch new articles from Neon
   2. Scrape full text (newspaper3k)
   3. Transcribe YouTube videos (yt-dlp + Whisper)
+  3b. Transcribe podcast episodes (Render FastAPI + Deepgram Nova-3)
   4. Compute embeddings (bge-small-en)
   5. Store everything back in Neon
   6. Trigger techpulse-intelligence repo (repository_dispatch)
@@ -20,6 +21,7 @@ from . import db
 from .worker_fetcher import run_worker_fetch
 from .scraper import scrape_batch
 from .youtube_transcriber import transcribe_youtube_articles
+from .podcast_transcriber import transcribe_podcast_episodes
 from .embedder import compute_embeddings
 from .retention import retention_enabled, run_retention
 
@@ -133,7 +135,7 @@ def run():
         # ── Step 3: Transcribe YouTube videos ──
         log.info("Step 3: Transcribing YouTube videos...")
         try:
-            transcribed = transcribe_youtube_articles(new_articles, max_videos=8)
+            transcribed = transcribe_youtube_articles(new_articles, max_videos=4)
             with db.get_cursor() as cur:
                 for item in transcribed:
                     db.update_article_full_text(
@@ -146,6 +148,35 @@ def run():
         except Exception as e:
             log.error("Transcription error: %s", e)
             errors.append(f"transcription: {e}")
+
+        # ── Step 3b: Transcribe podcast episodes via Render FastAPI (Deepgram) ──
+        log.info("Step 3b: Transcribing podcast episodes...")
+        try:
+            # Mots-clés de filtrage (anti-coût) — utilisés si définis
+            podcast_keywords_str = os.getenv("TECHPULSE_PODCAST_KEYWORDS", "")
+            podcast_keywords = [
+                k.strip() for k in podcast_keywords_str.split(",") if k.strip()
+            ] or None
+            max_podcast = int(os.getenv("TECHPULSE_PODCAST_MAX_EPISODES", "8"))
+
+            transcribed_pods = transcribe_podcast_episodes(
+                new_articles,
+                keywords=podcast_keywords,
+                max_episodes=max_podcast,
+            )
+            with db.get_cursor() as cur:
+                for item in transcribed_pods:
+                    db.update_article_full_text(
+                        cur,
+                        item["id"],
+                        item["full_text"],
+                        extraction_method=item.get("extraction_method", "deepgram_podcast"),
+                    )
+            stats["podcasts_transcribed"] = len(transcribed_pods)
+            log.info("Transcribed %d podcast episodes", len(transcribed_pods))
+        except Exception as e:
+            log.error("Podcast transcription error: %s", e)
+            errors.append(f"podcast_transcription: {e}")
 
         # ── Step 4: Compute embeddings ──
         log.info("Step 4: Computing embeddings...")

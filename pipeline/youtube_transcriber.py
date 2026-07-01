@@ -86,7 +86,7 @@ def extract_video_id(url: str) -> str | None:
     return None
 
 
-def transcribe_youtube_articles(articles: list[dict], max_videos: int = 10) -> list[dict]:
+def transcribe_youtube_articles(articles: list[dict], max_videos: int = 4) -> list[dict]:
     """Transcribe YouTube articles. Returns list of {id, full_text}."""
     yt_articles = [
         a for a in articles

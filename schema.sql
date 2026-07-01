@@ -49,6 +49,8 @@ CREATE TABLE IF NOT EXISTS articles (
   retry_count INTEGER DEFAULT 0,
   last_processed_at TIMESTAMPTZ,
   image_url TEXT,
+  audio_url TEXT,
+  audio_duration INTEGER,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

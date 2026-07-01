@@ -1,4 +1,4 @@
-"""Database connection and helpers for Neon PostgreSQL."""
+"""Database connection and helpers for PostgreSQL (Neon or Supabase)."""
 
 import os
 import uuid
@@ -10,7 +10,10 @@ import psycopg2.extras
 
 
 def get_connection():
-    return psycopg2.connect(os.environ["NEON_DATABASE_URL"], sslmode="require")
+    db_url = os.environ.get("DATABASE_URL") or os.environ.get("NEON_DATABASE_URL")
+    if not db_url:
+        raise RuntimeError("DATABASE_URL (or NEON_DATABASE_URL) is required")
+    return psycopg2.connect(db_url, sslmode="require")
 
 
 @contextmanager
