@@ -1,0 +1,33 @@
+name: Migrate Neon Predictions
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type APPLY_PREDICTIONS to create the predictions table"
+        required: true
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Validate confirmation
+        run: |
+          test "${{ github.event.inputs.confirm }}" = "APPLY_PREDICTIONS"
+
+      - name: Install migration dependencies
+        run: pip install "psycopg2-binary>=2.9"
+
+      - name: Apply predictions migration
+        env:
+          NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+        run: python -m pipeline.run_sql_file migrations/010_predictions.sql
