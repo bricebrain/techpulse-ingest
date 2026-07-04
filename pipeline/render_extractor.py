@@ -53,7 +53,7 @@ def extract_article_remote(article: dict) -> dict | None:
                 f"{base_url}/api/v1/extract/article",
                 headers=headers,
                 json={
-                    "article_id": article["id"],
+                    "article_id": article["hash"],
                     "url": article["url"],
                     "source": article.get("source_name"),
                 },

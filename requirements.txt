@@ -1,14 +1,10 @@
-psycopg2-binary>=2.9
 newspaper3k>=0.2.8
 trafilatura>=1.12
 lxml>=5.0
 lxml_html_clean>=0.1
 openai-whisper>=20240930
 yt-dlp>=2024.0
-sentence-transformers>=3.0
-huggingface-hub>=0.24
 torch>=2.0
 numpy>=1.26
 httpx>=0.27
-boto3>=1.34
 python-dotenv>=1.0

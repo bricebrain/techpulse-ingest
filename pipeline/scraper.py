@@ -16,14 +16,26 @@ SKIP_SCRAPE_STRATEGIES = {
     "youtube_transcript",
 }
 
+# Anciennement pilotées par la table Neon `source_extraction_rules`
+# (migrations/005_source_extraction_rules.sql). D1 n'a pas cette table —
+# ce petit dict en dur suffit pour un seul utilisateur.
+SOURCE_EXTRACTION_RULES: dict[str, dict] = {
+    "techcrunch": {"strategy": "trafilatura_fastapi", "use_fastapi": True, "use_local_fallback": True},
+    "the verge": {"strategy": "trafilatura_fastapi", "use_fastapi": True, "use_local_fallback": True},
+    "ars technica": {"strategy": "trafilatura_fastapi", "use_fastapi": True, "use_local_fallback": True},
+    "bloomberg": {"strategy": "metadata_only", "use_fastapi": False, "use_local_fallback": True},
+    "youtube": {"strategy": "youtube_transcript", "use_fastapi": False, "use_local_fallback": False},
+    "reddit": {"strategy": "manual_parser", "use_fastapi": False, "use_local_fallback": False},
+    "medium": {"strategy": "trafilatura_fastapi", "use_fastapi": True, "use_local_fallback": True},
+}
+
 
 def source_key(article: dict) -> str:
     return (article.get("source_name") or "").lower().strip()
 
 
-def extraction_rule(article: dict, rules: dict[str, dict] | None) -> dict:
-    if not rules:
-        return {}
+def extraction_rule(article: dict, rules: dict[str, dict] | None = None) -> dict:
+    rules = rules if rules is not None else SOURCE_EXTRACTION_RULES
     return rules.get(source_key(article), {})
 
 
@@ -98,18 +110,18 @@ def scrape_batch(
     articles: list[dict],
     extraction_rules: dict[str, dict] | None = None,
 ) -> tuple[list[dict], dict[str, str]]:
-    """Scrape a batch of articles, returning results with article IDs."""
+    """Scrape a batch of articles, returning results keyed by article hash."""
     results = []
     skipped = {}
     attempted = 0
-    failed_ids = []
+    failed_hashes = []
     for article in articles:
         url = article["url"]
         rule = extraction_rule(article, extraction_rules)
         strategy = infer_strategy(article, rule)
 
         if should_skip_scraping(strategy, rule):
-            skipped[article["id"]] = strategy
+            skipped[article["hash"]] = strategy
             log.info("Extraction skipped by strategy=%s: %s", strategy, article["title"][:60])
             continue
 
@@ -122,16 +134,15 @@ def scrape_batch(
 
         if data:
             results.append({
-                "id": article["id"],
+                "hash": article["hash"],
                 "full_text": data["text"],
-                "image_url": data["top_image"],
                 "extraction_method": data.get("method", "local_scraper"),
             })
             log.info("Scraped: %s", article["title"][:60])
         else:
-            failed_ids.append(article["id"])
+            failed_hashes.append(article["hash"])
 
     log.info("Scraped %d / %d attempted articles", len(results), attempted)
-    for article_id in failed_ids:
-        log.warning("Scraping failed for article id=%s", article_id)
+    for article_hash in failed_hashes:
+        log.warning("Scraping failed for article hash=%s", article_hash)
     return results, skipped

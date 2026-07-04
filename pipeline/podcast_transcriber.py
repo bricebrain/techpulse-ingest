@@ -1,10 +1,10 @@
 """Transcription de podcasts via Render FastAPI (Deepgram Nova-3).
 
 Le pipeline ingest appelle ce module après filtrage thématique :
-1. Récupère les articles avec source_type='podcast' et audio_url non null
+1. Récupère les articles avec theme='podcast' et audio_url non null
 2. Filtre par mots-clés (seuls les épisodes correspondant aux thèmes suivis sont transcrits)
 3. Appelle POST /api/v1/transcribe/podcast sur Render FastAPI
-4. Renvoie les transcripts pour insertion dans Neon (full_text)
+4. Renvoie les transcripts pour insertion en D1 via update_article_full_text (content)
 """
 
 import logging
@@ -45,7 +45,7 @@ def filter_podcast_episodes_for_transcription(
     """Sélectionne les épisodes podcast à transcrire.
 
     Stratégie :
-    - Un épisode est éligible s'il a un audio_url et pas encore de full_text
+    - Un épisode est éligible s'il a un audio_url et pas encore de content
     - Si keywords est fourni, l'épisode doit contenir au moins un keyword
       dans son titre ou description (filtre anti-bruit / anti-coût)
     - Si keywords est vide ou None, on transcrit les max_episodes les plus récents
@@ -53,9 +53,9 @@ def filter_podcast_episodes_for_transcription(
     """
     candidates = [
         a for a in articles
-        if a.get("source_type") == "podcast"
+        if (a.get("theme") == "podcast" or a.get("classified_theme") == "podcast")
         and a.get("audio_url")
-        and not a.get("full_text")
+        and not a.get("content")
     ]
 
     if not candidates:
@@ -85,7 +85,7 @@ def transcribe_podcast_episodes(
 ) -> list[dict]:
     """Transcrit les épisodes podcast éligibles via Render FastAPI.
 
-    Returns: liste de {id, full_text, segments_json, duration_sec, speaker_count}
+    Returns: liste de {hash, full_text, segments_json, duration_sec, speaker_count}
     """
     base_url = render_api_base_url()
     if not base_url:
@@ -111,7 +111,7 @@ def transcribe_podcast_episodes(
 
     results: list[dict] = []
     for episode in episodes:
-        episode_id = episode["id"]
+        episode_id = episode["hash"]
         audio_url = episode["audio_url"]
 
         payload = {
@@ -165,7 +165,7 @@ def transcribe_podcast_episodes(
         segments_json = json.dumps(segments) if segments else None
 
         results.append({
-            "id": episode_id,
+            "hash": episode_id,
             "full_text": transcript[:20000],
             "segments_json": segments_json,
             "duration_sec": data.get("duration_sec"),

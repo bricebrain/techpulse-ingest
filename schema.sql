@@ -1,3 +1,5 @@
+-- DEPRECATED — ce schema Neon n'est plus utilise depuis la migration vers Cloudflare D1 (voir techpulse-worker/schema.sql). Conserve pour l'historique uniquement ; ne pas appliquer sur une nouvelle base.
+
 -- TechPulse v2 — Neon PostgreSQL + pgvector
 -- Run this once on your Neon database to set up the full schema.
 

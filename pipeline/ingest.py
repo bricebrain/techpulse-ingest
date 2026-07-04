@@ -1,14 +1,13 @@
 """Main ingestion pipeline — entry point for GitHub Actions.
 
 Steps:
-  0. Fetch articles from Worker API → insert into Neon
-  1. Fetch new articles from Neon
-  2. Scrape full text (newspaper3k)
+  1. Fetch articles pending full-text (stage=fulltext) from D1 via Worker bridge
+  2. Scrape full text (trafilatura/newspaper3k, with Render FastAPI first)
   3. Transcribe YouTube videos (yt-dlp + Whisper)
   3b. Transcribe podcast episodes (Render FastAPI + Deepgram Nova-3)
-  4. Compute embeddings (bge-small-en)
-  5. Store everything back in Neon
-  6. Trigger techpulse-intelligence repo (repository_dispatch)
+  4. Push results back to D1 via /pipeline/articles/fulltext
+  5. Trigger techpulse-intelligence repo (repository_dispatch) — clustering/analysis
+     happens there, not in this pipeline.
 """
 
 import logging
@@ -18,11 +17,9 @@ import sys
 import httpx
 
 from . import db
-from .worker_fetcher import run_worker_fetch
 from .scraper import scrape_batch
 from .youtube_transcriber import transcribe_youtube_articles
 from .podcast_transcriber import transcribe_podcast_episodes
-from .embedder import compute_embeddings
 from .retention import retention_enabled, run_retention
 
 logging.basicConfig(
@@ -63,70 +60,55 @@ def run():
     log.info("TechPulse Ingestion Pipeline — Starting")
     log.info("=" * 60)
 
-    with db.get_cursor() as cur:
-        run_id = db.insert_pipeline_run(cur, "ingest")
+    run_id = db.insert_pipeline_run("ingest")
 
     stats = {
         "articles_fetched": 0,
-        "articles_embedded": 0,
-        "clusters_created": 0,
-        "clusters_updated": 0,
-        "analyses_generated": 0,
+        "articles_scraped": 0,
+        "videos_transcribed": 0,
+        "podcasts_transcribed": 0,
     }
     errors = []
 
     try:
-        # ── Step 0: Fetch articles from Worker API → Neon ──
-        log.info("Step 0: Fetching articles from Worker API...")
-        try:
-            fetched = run_worker_fetch()
-            stats["articles_fetched"] = fetched
-            log.info("Fetched %d articles from Worker API into Neon", fetched)
-        except Exception as e:
-            log.error("Worker fetch error: %s", e)
-            errors.append(f"worker_fetch: {e}")
-
-        # ── Step 1: Fetch new articles from Neon ──
-        log.info("Step 1: Fetching new articles from Neon...")
-        with db.get_cursor() as cur:
-            new_articles = db.fetch_new_articles(cur, limit=200)
+        # ── Step 1: Fetch articles pending full-text from D1 ──
+        log.info("Step 1: Fetching articles pending full-text from D1...")
+        new_articles = db.fetch_new_articles(hours=72, limit=200)
         stats["articles_fetched"] = len(new_articles)
-        log.info("Found %d new articles to process", len(new_articles))
+        log.info("Found %d articles to process", len(new_articles))
 
         if not new_articles:
             log.info("No new articles. Pipeline complete.")
-            with db.get_cursor() as cur:
-                db.complete_pipeline_run(cur, run_id, stats)
+            db.complete_pipeline_run(run_id, stats)
             return
+
+        updates: list[dict] = []
 
         # ── Step 2: Scrape full text ──
         log.info("Step 2: Scraping full articles...")
         try:
-            with db.get_cursor() as cur:
-                extraction_rules = db.fetch_source_extraction_rules(cur)
+            scraped, skipped_extractions = scrape_batch(new_articles)
+            scraped_hashes = {item["hash"] for item in scraped}
+            skipped_hashes = set(skipped_extractions)
 
-            scraped, skipped_extractions = scrape_batch(new_articles, extraction_rules)
-            scraped_ids = {item["id"] for item in scraped}
-            skipped_ids = set(skipped_extractions)
-            with db.get_cursor() as cur:
-                for item in scraped:
-                    db.update_article_full_text(
-                        cur,
-                        item["id"],
-                        item["full_text"],
-                        item.get("image_url"),
-                        item.get("extraction_method", "local_scraper"),
-                    )
-                for article_id, strategy in skipped_extractions.items():
-                    db.mark_article_extraction_skipped(
-                        cur,
-                        article_id,
-                        strategy,
-                        f"source_extraction_rule:{strategy}",
-                    )
-                for article in new_articles:
-                    if article["id"] not in scraped_ids and article["id"] not in skipped_ids:
-                        db.mark_article_extraction_failed(cur, article["id"], "local_scraper_returned_no_text")
+            for item in scraped:
+                updates.append({
+                    "hash": item["hash"],
+                    "content": item["full_text"],
+                    "fulltext_status": "done",
+                })
+            for article_hash, strategy in skipped_extractions.items():
+                updates.append({
+                    "hash": article_hash,
+                    "fulltext_status": "skipped",
+                })
+            for article in new_articles:
+                if article["hash"] not in scraped_hashes and article["hash"] not in skipped_hashes:
+                    updates.append({
+                        "hash": article["hash"],
+                        "fulltext_status": "failed",
+                    })
+            stats["articles_scraped"] = len(scraped)
             log.info("Scraped %d articles", len(scraped))
         except Exception as e:
             log.error("Scraping error: %s", e)
@@ -136,14 +118,13 @@ def run():
         log.info("Step 3: Transcribing YouTube videos...")
         try:
             transcribed = transcribe_youtube_articles(new_articles, max_videos=4)
-            with db.get_cursor() as cur:
-                for item in transcribed:
-                    db.update_article_full_text(
-                        cur,
-                        item["id"],
-                        item["full_text"],
-                        extraction_method="youtube_transcript",
-                    )
+            for item in transcribed:
+                updates.append({
+                    "hash": item["hash"],
+                    "content": item["full_text"],
+                    "fulltext_status": "done",
+                })
+            stats["videos_transcribed"] = len(transcribed)
             log.info("Transcribed %d videos", len(transcribed))
         except Exception as e:
             log.error("Transcription error: %s", e)
@@ -164,54 +145,36 @@ def run():
                 keywords=podcast_keywords,
                 max_episodes=max_podcast,
             )
-            with db.get_cursor() as cur:
-                for item in transcribed_pods:
-                    db.update_article_full_text(
-                        cur,
-                        item["id"],
-                        item["full_text"],
-                        extraction_method=item.get("extraction_method", "deepgram_podcast"),
-                    )
+            for item in transcribed_pods:
+                updates.append({
+                    "hash": item["hash"],
+                    "content": item["full_text"],
+                    "fulltext_status": "done",
+                })
             stats["podcasts_transcribed"] = len(transcribed_pods)
             log.info("Transcribed %d podcast episodes", len(transcribed_pods))
         except Exception as e:
             log.error("Podcast transcription error: %s", e)
             errors.append(f"podcast_transcription: {e}")
 
-        # ── Step 4: Compute embeddings ──
-        log.info("Step 4: Computing embeddings...")
+        # ── Step 4: Push results back to D1 ──
+        log.info("Step 4: Writing results back to D1 (%d updates)...", len(updates))
         try:
-            with db.get_cursor() as cur:
-                articles_to_embed = db.fetch_unembedded_articles(cur, limit=500)
-
-            embedded = compute_embeddings(articles_to_embed)
-            embedded_ids = {item["id"] for item in embedded}
-            with db.get_cursor() as cur:
-                for item in embedded:
-                    db.update_article_embedding(cur, item["id"], item["embedding"])
-                for article in articles_to_embed:
-                    if article["id"] not in embedded_ids:
-                        db.mark_article_embedding_failed(cur, article["id"], "embedding_model_returned_no_vector")
-            stats["articles_embedded"] = len(embedded)
-            log.info("Embedded %d articles", len(embedded))
+            updated = db.update_article_full_text(updates)
+            log.info("Updated %d articles in D1", updated)
         except Exception as e:
-            log.error("Embedding error: %s", e)
-            errors.append(f"embedding: {e}")
-            with db.get_cursor() as cur:
-                for article in articles_to_embed if 'articles_to_embed' in locals() else []:
-                    db.mark_article_embedding_failed(cur, article["id"], str(e))
+            log.error("D1 write-back error: %s", e)
+            errors.append(f"d1_writeback: {e}")
 
-        # ── Step 4b: Rétention / purge (garde Neon sous le free tier) ──
+        # ── Step 4b: Rétention / purge ──
         if retention_enabled():
-            try:
-                with db.get_cursor() as cur:
-                    stats["retention"] = run_retention(cur)
-            except Exception as e:
-                log.warning("Retention step skipped after error: %s", e, exc_info=True)
+            run_retention()
 
         # ── Step 5: Finalize ──
-        with db.get_cursor() as cur:
-            db.complete_pipeline_run(cur, run_id, stats)
+        # Les erreurs par étape sont best-effort (loggées, pipeline continue) ;
+        # seule une exception fatale (bloc except plus bas) marque le job "failed".
+        stats["errors"] = errors
+        db.complete_pipeline_run(run_id, stats)
 
         log.info("=" * 60)
         log.info("Pipeline complete: %s", stats)
@@ -223,8 +186,7 @@ def run():
     except Exception as e:
         log.error("Pipeline failed: %s", e)
         errors.append(f"fatal: {e}")
-        with db.get_cursor() as cur:
-            db.fail_pipeline_run(cur, run_id, errors)
+        db.fail_pipeline_run(run_id, errors)
         sys.exit(1)
 
 

@@ -87,10 +87,11 @@ def extract_video_id(url: str) -> str | None:
 
 
 def transcribe_youtube_articles(articles: list[dict], max_videos: int = 4) -> list[dict]:
-    """Transcribe YouTube articles. Returns list of {id, full_text}."""
+    """Transcribe YouTube articles. Returns list of {hash, full_text}."""
     yt_articles = [
         a for a in articles
-        if a["source_type"] == "youtube" and extract_video_id(a["url"])
+        if (a.get("theme") == "youtube" or a.get("classified_theme") == "youtube")
+        and extract_video_id(a["url"])
     ][:max_videos]
 
     if not yt_articles:
@@ -113,7 +114,7 @@ def transcribe_youtube_articles(articles: list[dict], max_videos: int = 4) -> li
             transcript = transcribe_audio(audio_path)
             if transcript:
                 results.append({
-                    "id": article["id"],
+                    "hash": article["hash"],
                     "full_text": transcript[:20000],
                 })
                 log.info("Transcribed %d chars", len(transcript))
