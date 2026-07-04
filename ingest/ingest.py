@@ -6,15 +6,14 @@ Steps:
   3. Transcribe YouTube videos (yt-dlp + Whisper)
   3b. Transcribe podcast episodes (Render FastAPI + Deepgram Nova-3)
   4. Push results back to D1 via /pipeline/articles/fulltext
-  5. Trigger techpulse-intelligence repo (repository_dispatch) — clustering/analysis
-     happens there, not in this pipeline.
+
+Clustering/analysis runs in the `intelligence` package, as a separate job
+right after this one in the same GitHub Actions workflow (no cross-repo
+dispatch needed now that both live in one repo).
 """
 
 import logging
-import os
 import sys
-
-import httpx
 
 from . import db
 from .scraper import scrape_batch
@@ -28,31 +27,6 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger("ingest")
-
-
-def trigger_intelligence_pipeline():
-    """Trigger the techpulse-intelligence repo via GitHub repository_dispatch."""
-    token = os.environ.get("GITHUB_TRIGGER_TOKEN")
-    repo = os.environ.get("INTELLIGENCE_REPO", "")
-
-    if not token or not repo:
-        log.warning("GITHUB_TRIGGER_TOKEN or INTELLIGENCE_REPO not set, skipping trigger")
-        return
-
-    log.info("Triggering intelligence pipeline: %s", repo)
-    resp = httpx.post(
-        f"https://api.github.com/repos/{repo}/dispatches",
-        headers={
-            "Authorization": f"token {token}",
-            "Accept": "application/vnd.github.v3+json",
-        },
-        json={"event_type": "ingest_complete"},
-        timeout=30,
-    )
-    if resp.status_code == 204:
-        log.info("Intelligence pipeline triggered successfully")
-    else:
-        log.warning("Failed to trigger: %d %s", resp.status_code, resp.text[:200])
 
 
 def run():
@@ -179,9 +153,6 @@ def run():
         log.info("=" * 60)
         log.info("Pipeline complete: %s", stats)
         log.info("=" * 60)
-
-        # ── Step 6: Trigger intelligence pipeline ──
-        trigger_intelligence_pipeline()
 
     except Exception as e:
         log.error("Pipeline failed: %s", e)
