@@ -34,20 +34,15 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
           R2_PUBLIC_URL: ${{ secrets.R2_PUBLIC_URL }}
-          FIREBASE_SERVER_KEY: ${{ secrets.FIREBASE_SERVER_KEY }}
         run: |
           python -c "
           from intelligence.podcast_generator import generate_podcast
-          from intelligence.notifier import send_fcm_notification
 
           # podcast_generator is disabled after the D1 migration (no D1 route
           # for podcasts/serendipity scoring) — this now logs a warning and
           # no-ops. Kept as a workflow so re-enabling later is a one-file change.
-          pid = generate_podcast(None, podcast_type='weekly')
-          if pid:
-              send_fcm_notification(
-                  'TechPulse — Résumé de la semaine',
-                  'Ton podcast hebdo est prêt',
-                  {'type': 'weekly_podcast'}
-              )
+          # Notifying the app is Expo Push's job (techpulse-worker), not this
+          # pipeline's — the old Firebase FCM legacy notifier was removed
+          # (Google shut down the legacy Cloud Messaging API in 2024).
+          generate_podcast(None, podcast_type='weekly')
           "

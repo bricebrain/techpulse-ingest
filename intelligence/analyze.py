@@ -6,7 +6,10 @@ Steps (post D1 migration):
   3. Clustering — URL/title/keyword dedup (no embeddings)
   4. Cluster merging — LLM-suggested merges of near-duplicate clusters
   5. LLM Analysis — analyze top clusters, push cluster_analyses to D1
-  6. Notifications — push via FCM
+
+User-facing push notifications (signals, followed topics, daily digest) are
+handled entirely by techpulse-worker via Expo Push — this pipeline doesn't
+send any push itself.
 
 Optional/legacy steps (scoring, weak signals, podcasts, serendipity, NER,
 classification, sentiment, keyword extraction, prediction tracking) are
@@ -24,7 +27,6 @@ from .article_intelligence import run_article_intelligence
 from .clusterer import CLUSTER_WINDOW_HOURS, run_clustering
 from .cluster_merger import run_cluster_merging
 from .llm_analyzer import run_llm_analysis
-from .notifier import notify_pipeline_complete
 from .prompt_lab import propose_and_evaluate_prompt
 from .prompt_registry import seed_default_prompt
 
@@ -208,9 +210,8 @@ def run():
         analyses = run_llm_analysis(merged_clusters, limit=10)
         stats["analyses_generated"] = analyses
 
-        # ── Step 6: Finalize + Notify ──
+        # ── Step 6: Finalize ──
         db.complete_pipeline_run(None, run_id, stats)
-        notify_pipeline_complete(stats)
 
         log.info("=" * 60)
         log.info("Core intelligence pipeline complete: %s", stats)
