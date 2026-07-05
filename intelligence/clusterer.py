@@ -15,6 +15,7 @@ strong on its own, or moderate with a shared brand/anchor token.
 import logging
 import os
 import re
+import unicodedata
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 from datetime import datetime, timezone
 
@@ -55,6 +56,63 @@ BRAND_TOKENS = {
 }
 
 TRACKING_QUERY_PREFIXES = ("utm_", "ref", "fbclid", "gclid", "mc_", "icid", "cmp")
+
+# ─── Garde-fou "émission récurrente" ────────────────────────────────────────
+# Un podcast/brief quotidien ou hebdomadaire a un titre quasi fixe où seule la
+# date change ("L'intégrale de Tech & Co, la quotidienne, du jeudi 2 juillet"
+# vs "... du vendredi 3 juillet") : le Jaccard sur les tokens reste élevé
+# (tous les mots du gabarit sont partagés) alors que ce sont deux épisodes
+# différents, jamais le même événement. On détecte ce cas et on bloque
+# explicitement la fusion, plutôt que de se fier au score de similarité.
+DAY_NAMES = {
+    "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche",
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+}
+MONTH_NAMES = {
+    "janvier", "fevrier", "mars", "avril", "mai", "juin", "juillet", "aout",
+    "septembre", "octobre", "novembre", "decembre",
+    "january", "february", "march", "april", "may", "june", "july", "august",
+    "september", "october", "november", "december",
+}
+DATE_WORDS = DAY_NAMES | MONTH_NAMES
+
+PERIODIC_MARKERS = {
+    "quotidien", "quotidienne", "hebdomadaire", "hebdo", "digest", "recap",
+    "recup", "episode", "episodes", "integrale", "brief", "weekly", "daily",
+}
+
+
+def _strip_accents(text: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFD", text) if unicodedata.category(c) != "Mn")
+
+
+def _normalized_word_set(text: str | None) -> set[str]:
+    if not text:
+        return set()
+    return set(re.findall(r"[a-z0-9]+", _strip_accents(text.lower())))
+
+
+def _is_date_number(token: str) -> bool:
+    """Jour du mois, avec ou sans suffixe ordinal ("3", "3rd", "3e", "3eme")."""
+    m = re.fullmatch(r"(\d{1,2})(st|nd|rd|th|e|er|eme)?", token)
+    if not m:
+        return False
+    return 1 <= int(m.group(1)) <= 31
+
+
+def is_recurring_periodical(article_title: str | None, cluster_title: str | None) -> bool:
+    """True si les deux titres partagent un marqueur d'émission récurrente
+    (quotidien, hebdo, brief, épisode...) ET ne diffèrent que par un élément de
+    date (jour de la semaine, mois, ou quantième) — signe de deux occurrences
+    distinctes de la même émission, pas du même événement."""
+    a_words = _normalized_word_set(article_title)
+    b_words = _normalized_word_set(cluster_title)
+    if not (a_words & PERIODIC_MARKERS) or not (b_words & PERIODIC_MARKERS):
+        return False
+    differing = (a_words - b_words) | (b_words - a_words)
+    if differing & DATE_WORDS:
+        return True
+    return bool(differing) and all(_is_date_number(tok) for tok in differing)
 
 
 def canonical_url(url: str | None) -> str | None:
@@ -306,6 +364,8 @@ def run_clustering(articles: list[dict]) -> tuple[int, int]:
             qualifies = title_sim >= TITLE_SIM_THRESHOLD or (
                 same_theme and keyword_sim >= KEYWORD_SIM_THRESHOLD and not fingerprint_conflict
             )
+            if qualifies and is_recurring_periodical(article.get("title"), cand.title):
+                continue
             if not qualifies:
                 continue
 
