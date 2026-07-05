@@ -178,10 +178,10 @@ class ClusterCandidate:
 
     __slots__ = ("id", "title", "theme", "dedup_title", "founder_hash",
                  "title_tokens", "keyword_tokens", "canonical_urls",
-                 "article_hashes", "latest_at")
+                 "article_hashes", "latest_at", "event_fingerprint", "source_type_counts")
 
     def __init__(self, id_: str, title: str, theme: str, dedup_title: str,
-                 founder_hash: str):
+                 founder_hash: str, event_fingerprint: str | None = None):
         self.id = id_
         self.title = title
         self.theme = theme
@@ -192,12 +192,19 @@ class ClusterCandidate:
         self.canonical_urls: set[str] = set()
         self.article_hashes: list[str] = []
         self.latest_at: datetime | None = None
+        # Fingerprint of the founder (or first-seen member on re-hydration) —
+        # used to stop the theme+keyword fallback path from merging two
+        # different events in the same domain. Not overwritten by later members.
+        self.event_fingerprint = event_fingerprint
+        self.source_type_counts: dict[str, int] = {}
 
     def add(self, article: dict, url_norm: str | None):
         self.article_hashes.append(article["hash"])
         self.keyword_tokens.update(_parse_keywords(article.get("keywords_json")))
         if url_norm:
             self.canonical_urls.add(url_norm)
+        source_type = article.get("source_type") or "article"
+        self.source_type_counts[source_type] = self.source_type_counts.get(source_type, 0) + 1
         pub = _parse_time(article.get("published_at")) or _parse_time(article.get("fetched_at"))
         if pub and (self.latest_at is None or pub > self.latest_at):
             self.latest_at = pub
@@ -250,6 +257,7 @@ def run_clustering(articles: list[dict]) -> tuple[int, int]:
                 theme=article_theme(article),
                 dedup_title=title[:200],
                 founder_hash=article["hash"],
+                event_fingerprint=article.get("event_fingerprint"),
             )
             clusters_by_id[existing_cluster_id] = cand
         cand.add(article, url_norm)
@@ -263,6 +271,7 @@ def run_clustering(articles: list[dict]) -> tuple[int, int]:
         article_kw = _parse_keywords(article.get("keywords_json"))
         article_title_tokens = title_tokens(article.get("title"))
         theme = article_theme(article)
+        article_fingerprint = article.get("event_fingerprint")
 
         # 1. Exact canonical URL match — always the same cluster.
         if url_norm and url_norm in by_url:
@@ -284,8 +293,18 @@ def run_clustering(articles: list[dict]) -> tuple[int, int]:
             keyword_sim = jaccard(article_kw, cand.keyword_tokens)
             same_theme = bool(theme and theme == cand.theme)
 
+            # Un titre très proche reste un signal fort à lui seul. Le chemin
+            # "même thème + mots-clés" est plus risqué (peut mélanger deux
+            # événements distincts du même domaine) : on exige en plus que les
+            # event_fingerprint ne se contredisent pas explicitement — si les
+            # deux sont connus (LLM a tourné des deux côtés) et diffèrent,
+            # ce sont deux événements différents, jamais le même dossier.
+            fingerprint_conflict = bool(
+                article_fingerprint and cand.event_fingerprint
+                and article_fingerprint != cand.event_fingerprint
+            )
             qualifies = title_sim >= TITLE_SIM_THRESHOLD or (
-                same_theme and keyword_sim >= KEYWORD_SIM_THRESHOLD
+                same_theme and keyword_sim >= KEYWORD_SIM_THRESHOLD and not fingerprint_conflict
             )
             if not qualifies:
                 continue
@@ -317,6 +336,7 @@ def run_clustering(articles: list[dict]) -> tuple[int, int]:
                 theme=theme,
                 dedup_title=dedup_title[:200],
                 founder_hash=article["hash"],
+                event_fingerprint=article_fingerprint,
             )
             cand.add(article, url_norm)
             clusters.append(cand)
@@ -324,6 +344,12 @@ def run_clustering(articles: list[dict]) -> tuple[int, int]:
                 by_url[url_norm] = cand
             created += 1
 
+    # NOTE: source_type_counts (comme article_hashes) ne reflète que les articles
+    # vus dans la fenêtre de CE run (CLUSTER_WINDOW_HOURS) — un dossier actif
+    # depuis plus longtemps que la fenêtre verra ses compteurs sous-estimés au
+    # lieu de s'accumuler. Limitation préexistante (article_count avait déjà ce
+    # comportement), pas corrigée ici — à revisiter si les dossiers vivent
+    # couramment plus longtemps que la fenêtre de clustering.
     payload = []
     for cand in clusters:
         payload.append({
@@ -335,6 +361,7 @@ def run_clustering(articles: list[dict]) -> tuple[int, int]:
             "article_hashes": cand.article_hashes,
             "founder_hash": cand.founder_hash,
             "status": "active",
+            "source_counts_json": cand.source_type_counts,
         })
 
     if payload:

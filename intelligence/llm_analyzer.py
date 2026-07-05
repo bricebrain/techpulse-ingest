@@ -197,6 +197,7 @@ Produce a JSON response with these fields:
   - "common_misreadings": array of 2-4 ways readers could misunderstand or over-interpret the story
   - "bottom_line": one strong paragraph explaining what a serious TechPulse reader should remember
 - "timeline_events": array of key events, each with: "date" (strict ISO YYYY-MM-DD only when the exact day is known, otherwise null), "title" (short event description in French, max ~12 words), "importance" (1-10). Extract only the 2-3 MOST significant events (not every event) showing how this story evolved.
+- "entities": array of the key actors of this SPECIFIC event (not generic industry players), each with "name", "type" ("company" | "person" | "technology"), "role" (short, in French, e.g. "annonceur", "partenaire", "concurrent cité", "technologie clé"). Only include entities explicitly central to this story — max 8.
 - "epistemic": the overall epistemic status of this cluster, choose one:
   • "peer-reviewed": published research with peer review
   • "preprint": arXiv/bioRxiv working paper, not yet published
@@ -590,11 +591,40 @@ def _analyze_cluster(cluster: dict, rank: int, prompt: str) -> tuple[dict | None
     return _call_provider(provider, prompt)
 
 
+VALID_ENTITY_TYPES = {"company", "person", "technology"}
+
+
+def _clean_timeline_events(raw) -> list[dict]:
+    events = []
+    for item in (raw or [])[:5]:
+        if not isinstance(item, dict) or not item.get("title"):
+            continue
+        events.append({
+            "date": item.get("date") or None,
+            "title": str(item["title"])[:200],
+            "importance": item.get("importance"),
+        })
+    return events
+
+
+def _clean_entities(raw) -> list[dict]:
+    entities = []
+    for item in (raw or [])[:8]:
+        if not isinstance(item, dict) or not item.get("name"):
+            continue
+        entity_type = item.get("type") if item.get("type") in VALID_ENTITY_TYPES else "technology"
+        entities.append({
+            "name": str(item["name"])[:120],
+            "type": entity_type,
+            "role": str(item.get("role") or "")[:120] or None,
+        })
+    return entities
+
+
 def _map_analysis_for_push(cluster_id: str, result: dict, provider: str, model: str) -> dict:
-    """Map the rich LLM JSON onto the 7 fields accepted by
-    POST /pipeline/cluster-analyses. Everything else (pedagogical_analysis,
-    timeline_events, predictions, counter_analysis, ...) has no D1 column yet
-    and is dropped here; only the summary/impact/reliability/risk fields ship."""
+    """Map the rich LLM JSON onto the fields accepted by POST
+    /pipeline/cluster-analyses. pedagogical_analysis/predictions/counter_analysis
+    still have no D1 column and are dropped; timeline_events/entities do."""
     why_interesting = result.get("why_it_matters") or ""
     reliability = result.get("epistemic") or "presse"
     keywords = result.get("suggested_keywords") or []
@@ -606,6 +636,8 @@ def _map_analysis_for_push(cluster_id: str, result: dict, provider: str, model: 
         "reliability": reliability,
         "risk_level": result.get("risk_level") or "medium",
         "keywords_json": keywords[:10],
+        "timeline_json": _clean_timeline_events(result.get("timeline_events")),
+        "entities_json": _clean_entities(result.get("entities")),
         "model_used": f"{provider}:{model}",
     }
 
@@ -627,6 +659,7 @@ def run_llm_analysis(clusters: list[dict], limit: int = 15) -> int:
     ranked = sorted(clusters, key=lambda c: len(c.get("article_hashes") or []), reverse=True)[:limit]
     analyzed = 0
     to_push = []
+    entity_rows = []
 
     for rank, cluster in enumerate(ranked, 1):
         articles = cluster.get("_articles") or []
@@ -637,13 +670,22 @@ def run_llm_analysis(clusters: list[dict], limit: int = 15) -> int:
         result, used_provider, used_model = _analyze_cluster(cluster, rank, prompt)
 
         if result:
-            to_push.append(_map_analysis_for_push(cluster["id"], result, used_provider, used_model))
+            analysis = _map_analysis_for_push(cluster["id"], result, used_provider, used_model)
+            to_push.append(analysis)
+            entity_rows.extend(
+                {"cluster_id": cluster["id"], "entity_name": e["name"], "entity_type": e["type"], "role": e["role"]}
+                for e in analysis["entities_json"]
+            )
             analyzed += 1
             log.info("Analyzed [%s] cluster #%d: %s", used_provider, rank, cluster["title"][:50])
 
     if to_push:
         pushed = db.push_cluster_analyses(to_push)
         log.info("Pushed %s cluster analyses to Worker", pushed)
+
+    if entity_rows:
+        pushed_entities = db.push_cluster_entities(entity_rows)
+        log.info("Pushed %s cluster entities to Worker", pushed_entities)
 
     log.info("LLM analysis: %d clusters analyzed", analyzed)
     return analyzed

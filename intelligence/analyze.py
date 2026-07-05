@@ -189,10 +189,14 @@ def run():
                 "article_hashes": [],
                 "founder_hash": a["hash"],
                 "status": "active",
+                "event_fingerprint": a.get("event_fingerprint"),
+                "source_counts_json": {},
                 "_articles": [],
             })
             c["article_hashes"].append(a["hash"])
             c["_articles"].append(a)
+            source_type = a.get("source_type") or "article"
+            c["source_counts_json"][source_type] = c["source_counts_json"].get(source_type, 0) + 1
 
         cluster_list = list(clusters_by_id.values())
         merged_clusters, merged_count = run_cluster_merging(cluster_list)

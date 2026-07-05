@@ -18,7 +18,7 @@ log = logging.getLogger(__name__)
 
 MERGE_PROMPT = """Tu es un analyste spécialisé en veille technologique et financière.
 
-Voici {count} clusters d'articles détectés aujourd'hui. Chaque cluster a un titre et un nombre d'articles.
+Voici {count} clusters d'articles détectés aujourd'hui. Chaque cluster a un titre, un nombre d'articles et un fingerprint d'événement (quand connu).
 
 {clusters_text}
 
@@ -26,6 +26,7 @@ Ton travail : identifier les clusters qui parlent du MÊME événement ou de la 
 
 Règles :
 - Ne fusionne que les doublons ou variantes rédactionnelles du même événement.
+- Si deux clusters ont un fingerprint renseigné et DIFFÉRENT, ce sont deux événements distincts par définition — ne les fusionne JAMAIS, même si les titres se ressemblent ou appartiennent au même domaine.
 - Ne crée jamais de panier large comme "Global AI governance", "latest developments", "financial news" ou "industry challenges".
 - OpenAI policy, Trump executive order, US House AI bill et EU sovereignty = liés mais différents → NE PAS fusionner.
 - SpaceX IPO price, SpaceX revenue forecast et Google compute deal = liés mais différents → NE PAS fusionner.
@@ -52,7 +53,7 @@ def build_merge_prompt(clusters: list[dict]) -> str:
     for c in clusters:
         clusters_text += (
             f"- ID: {c['id']} | Articles: {len(c.get('article_hashes') or [])} | \"{c['title']}\"\n"
-            f"  theme: {c.get('theme') or 'n/a'}\n"
+            f"  theme: {c.get('theme') or 'n/a'} | fingerprint: {c.get('event_fingerprint') or 'n/a'}\n"
         )
 
     rendered = render_prompt(
@@ -115,6 +116,22 @@ def run_cluster_merging(clusters: list[dict]) -> tuple[list[dict], int]:
         if len(cluster_ids) < 2:
             continue
 
+        # Garde-fou structurel : ne pas se fier uniquement au jugement du LLM.
+        # Si deux clusters du groupe ont chacun un fingerprint connu et différent,
+        # ce sont deux événements distincts — on rejette la fusion entière plutôt
+        # que de risquer de mélanger deux dossiers.
+        fingerprints = {
+            by_id[cid].get("event_fingerprint")
+            for cid in cluster_ids
+            if by_id[cid].get("event_fingerprint")
+        }
+        if len(fingerprints) > 1:
+            log.info(
+                "Fusion rejetée (fingerprints incompatibles %s) pour le groupe %s",
+                fingerprints, cluster_ids,
+            )
+            continue
+
         ranked = sorted(cluster_ids, key=lambda cid: len(by_id[cid].get("article_hashes") or []), reverse=True)
         target_id = ranked[0]
         source_ids = ranked[1:]
@@ -129,6 +146,12 @@ def run_cluster_merging(clusters: list[dict]) -> tuple[list[dict], int]:
             existing_kw = target.get("keywords_json") or []
             merged_kw = list(dict.fromkeys(existing_kw + (source.get("keywords_json") or [])))
             target["keywords_json"] = merged_kw
+
+            target_counts = target.get("source_counts_json") or {}
+            for source_type, count in (source.get("source_counts_json") or {}).items():
+                target_counts[source_type] = target_counts.get(source_type, 0) + count
+            target["source_counts_json"] = target_counts
+
             merged_away.add(source_id)
 
         total_merged += len(source_ids)

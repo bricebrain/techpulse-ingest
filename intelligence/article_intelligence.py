@@ -1,12 +1,13 @@
 """Lightweight structured LLM enrichment for individual articles.
 
-D1 only stores 5 enrichment fields per article (impact_fr, reliability,
-why_interesting_fr, score_interest, keywords_json) via
-POST /pipeline/articles/enrich — the old Neon article_intelligence table
-(entities/companies/people/products/sectors/countries/tags/event_fingerprint)
-has no D1 equivalent, so the prompt and output were both trimmed down to
-match. Clustering (clusterer.py) no longer needs any of the dropped fields:
-it works from url/title/keywords_json/theme instead.
+D1 stores 6 enrichment fields per article (impact_fr, reliability,
+why_interesting_fr, score_interest, keywords_json, event_fingerprint) via
+POST /pipeline/articles/enrich. The old Neon article_intelligence table's
+richer fields (entities/companies/people/products/sectors/countries/tags)
+still have no D1 equivalent and stay dropped — only event_fingerprint came
+back, specifically to let clusterer.py tell apart two different events in
+the same domain (e.g. two distinct AI announcements) instead of merging
+them into one dossier just because titles/keywords are lexically close.
 """
 
 import logging
@@ -44,7 +45,8 @@ Schéma attendu:
   "why_interesting_fr": "1-2 phrases en français : ce qui rend cet article notable ou différenciant",
   "reliability": "peer-reviewed" | "preprint" | "communique" | "analyse" | "presse" | "rumeur",
   "score_interest": 0,
-  "keywords_json": ["5 à 8 mots-clés normalisés"]
+  "keywords_json": ["5 à 8 mots-clés normalisés"],
+  "event_fingerprint": "identifiant court de l'événement PRÉCIS (pas du domaine général)"
 }}
 
 Règles:
@@ -57,6 +59,13 @@ Règles:
   • analyse : analyse, opinion argumentée, éditorial, podcast expert
   • presse : article de presse classique, news recap
   • rumeur : fuite non confirmée, rumeur, spéculation
+- event_fingerprint identifie l'ÉVÉNEMENT précis, pas le sujet général : format slug
+  anglais en minuscules avec tirets, acteur principal + action spécifique.
+  Exemples : "openai-gpt6-launch", "palantir-us-army-contract", "spacex-starship-v3-test".
+  Deux articles qui parlent du MÊME événement précis doivent produire le même
+  fingerprint. Deux événements différents, même liés ou du même domaine
+  (ex: "openai-gpt6-launch" vs "google-gemini5-training"), doivent avoir des
+  fingerprints différents — ne jamais généraliser au niveau du domaine/thème.
 """
 
 
@@ -102,6 +111,15 @@ def _build_prompt(article: dict, cur=None) -> str:
     return rendered.text
 
 
+def _slugify_fingerprint(value: str | None) -> str | None:
+    """Normalize LLM output defensively — clusterer.py compares fingerprints by
+    equality, so minor formatting variance (spaces, case) shouldn't break matches."""
+    if not value:
+        return None
+    slug = re.sub(r"[^a-z0-9]+", "-", value.strip().lower()).strip("-")
+    return slug[:80] or None
+
+
 def _as_int(value, default: int = 0) -> int:
     try:
         return max(0, min(100, int(round(float(value)))))
@@ -124,6 +142,7 @@ def normalize_result(result: dict) -> dict:
         "reliability": result.get("reliability") or "presse",
         "score_interest": _as_int(result.get("score_interest"), 50),
         "keywords_json": [str(k)[:60] for k in _as_list(result.get("keywords_json"))[:8]],
+        "event_fingerprint": _slugify_fingerprint(result.get("event_fingerprint")),
     }
 
 
@@ -174,6 +193,7 @@ def run_article_intelligence(cur, articles: list[dict], limit: int = ARTICLE_INT
                 "why_interesting_fr": content["why_interesting_fr"],
                 "score_interest": content["score_interest"],
                 "keywords_json": content["keywords_json"],
+                "event_fingerprint": content["event_fingerprint"],
             })
             enriched += 1
             log.info("Article intelligence [%s]: %s", provider, (article.get("title") or "")[:80])

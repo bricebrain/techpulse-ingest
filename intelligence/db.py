@@ -101,12 +101,12 @@ def fetch_processed_articles(cur=None, hours: int = 72, limit: int = 500) -> lis
 
 def push_clusters(clusters: list[dict]) -> dict:
     """Upsert clusters + article links. Max 200 per call (chunked here)."""
-    clusters = _stringify_json_fields(clusters, ("keywords_json",))
+    clusters = _stringify_json_fields(clusters, ("keywords_json", "source_counts_json"))
     total = 0
     for i in range(0, len(clusters), 200):
         chunk = clusters[i:i + 200]
         result = _request("POST", "/pipeline/clusters", json_body={"clusters": chunk})
-        total += result.get("count", len(chunk))
+        total += result.get("upserted", len(chunk))
     return {"count": total}
 
 
@@ -114,12 +114,22 @@ def push_clusters(clusters: list[dict]) -> dict:
 
 def push_cluster_analyses(analyses: list[dict]) -> dict:
     """Upsert cluster_analyses. Max 100 per call (chunked here)."""
-    analyses = _stringify_json_fields(analyses, ("keywords_json",))
+    analyses = _stringify_json_fields(analyses, ("keywords_json", "timeline_json", "entities_json"))
     total = 0
     for i in range(0, len(analyses), 100):
         chunk = analyses[i:i + 100]
         result = _request("POST", "/pipeline/cluster-analyses", json_body={"analyses": chunk})
-        total += result.get("count", len(chunk))
+        total += result.get("upserted", len(chunk))
+    return {"count": total}
+
+
+def push_cluster_entities(entities: list[dict]) -> dict:
+    """Upsert normalized cluster_entities. Max 300 per call (chunked here)."""
+    total = 0
+    for i in range(0, len(entities), 300):
+        chunk = entities[i:i + 300]
+        result = _request("POST", "/pipeline/cluster-entities", json_body={"entities": chunk})
+        total += result.get("upserted", len(chunk))
     return {"count": total}
 
 
@@ -132,7 +142,7 @@ def push_article_enrichment(articles: list[dict]) -> dict:
     for i in range(0, len(articles), 300):
         chunk = articles[i:i + 300]
         result = _request("POST", "/pipeline/articles/enrich", json_body={"articles": chunk})
-        total += result.get("count", len(chunk))
+        total += result.get("updated", len(chunk))
     return {"count": total}
 
 
