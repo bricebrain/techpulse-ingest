@@ -72,7 +72,7 @@ def propose_and_evaluate_prompt(
     )
     proposal = analyze_with_deepseek(engineer_prompt, model="deepseek-v4-pro")
     if not proposal:
-        proposal = analyze_with_openai(engineer_prompt, model="gpt-4o-mini")
+        proposal = analyze_with_openai(engineer_prompt, model="gpt-5-mini")
 
     candidate_prompt = proposal.get("candidate_prompt") if proposal else None
     if not candidate_prompt:

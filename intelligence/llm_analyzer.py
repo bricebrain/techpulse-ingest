@@ -180,6 +180,7 @@ Articles:
 {articles_text}
 
 Produce a JSON response with these fields:
+- "title_fr": a short, natural French headline for this event (NOT a word-for-word translation of the English title — write a clear, idiomatic French headline that a French reader would immediately understand). Max ~90 characters.
 - "summary": 2-3 sentence summary in French
 - "why_it_matters": why this matters for the relevant audience in this story (in French)
 {impact_fields}
@@ -329,8 +330,8 @@ def analyze_with_gemini(prompt: str) -> dict | None:
         return None
 
 
-def analyze_with_openai(prompt: str, model: str = "gpt-4o-mini") -> dict | None:
-    """Call OpenAI API ($0.15/M in, $0.60/M out)."""
+def analyze_with_openai(prompt: str, model: str = "gpt-5-mini") -> dict | None:
+    """Call OpenAI API (gpt-5-mini ; gpt-4o-mini retiré le 13 fév 2026)."""
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         log.warning("OPENAI_API_KEY not set")
@@ -507,7 +508,7 @@ def _call_provider(provider: str, prompt: str) -> tuple[dict | None, str, str]:
     if provider == "openai":
         result = analyze_with_openai(prompt)
         if result:
-            return result, "openai", "gpt-4o-mini"
+            return result, "openai", "gpt-5-mini"
 
     if provider == "deepseek":
         result = analyze_with_deepseek(prompt)
@@ -517,7 +518,7 @@ def _call_provider(provider: str, prompt: str) -> tuple[dict | None, str, str]:
     # Preferred fallback: OpenAI tends to preserve structured JSON well.
     result = analyze_with_openai(prompt)
     if result:
-        return result, "openai", "gpt-4o-mini"
+        return result, "openai", "gpt-5-mini"
 
     # Last resort: Gemini, if configured and authorized.
     result = analyze_with_gemini(prompt)
@@ -630,6 +631,7 @@ def _map_analysis_for_push(cluster_id: str, result: dict, provider: str, model: 
     keywords = result.get("suggested_keywords") or []
     return {
         "cluster_id": cluster_id,
+        "title_fr": (result.get("title_fr") or "")[:200],
         "summary_fr": (result.get("summary") or "")[:2000],
         "impact_fr": why_interesting[:2000],
         "why_interesting_fr": why_interesting[:2000],

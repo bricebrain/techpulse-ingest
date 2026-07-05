@@ -158,7 +158,7 @@ def analyze_article(article: dict, cur=None) -> tuple[dict | None, str, str]:
 
     result = analyze_with_openai(prompt)
     if result:
-        return normalize_result(result), "openai", "gpt-4o-mini"
+        return normalize_result(result), "openai", "gpt-5-mini"
 
     return None, "none", "none"
 
