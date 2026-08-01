@@ -1,8 +1,6 @@
 name: TechPulse Pipeline
 
 on:
-  schedule:
-    - cron: '0 6,12,18 * * *'     # 3x/day at 6h, 12h, 18h UTC
   workflow_dispatch:
     inputs:
       article_llm_limit:
@@ -58,69 +56,3 @@ jobs:
           TECHPULSE_RENDER_API_SECRET: ${{ secrets.TECHPULSE_RENDER_API_SECRET }}
           TECHPULSE_RENDER_EXTRACT_TIMEOUT: "45"
         run: python -m ingest
-
-  intelligence:
-    needs: ingest
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-
-      - name: Install Python dependencies
-        run: pip install -r intelligence/requirements.txt
-
-      - name: Run intelligence pipeline
-        env:
-          TECHPULSE_WORKER_URL: ${{ secrets.TECHPULSE_WORKER_URL }}
-          TECHPULSE_WORKER_SECRET: ${{ secrets.TECHPULSE_WORKER_SECRET }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          OPENROUTER_MODEL_PREMIUM: ${{ vars.OPENROUTER_MODEL_PREMIUM }}
-          OPENROUTER_MODEL_TAIL: ${{ vars.OPENROUTER_MODEL_TAIL }}
-          OPENROUTER_PREMIUM_TOP_N: ${{ vars.OPENROUTER_PREMIUM_TOP_N }}
-          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          R2_PUBLIC_URL: ${{ secrets.R2_PUBLIC_URL }}
-          TECHPULSE_ARTICLE_LLM_LIMIT: ${{ github.event.inputs.article_llm_limit || '60' }}
-          TECHPULSE_FORCE_LLM_ANALYSIS: ${{ github.event.inputs.force_llm_analysis || 'false' }}
-          TECHPULSE_CLUSTER_WINDOW_HOURS: ${{ github.event.inputs.cluster_window_hours || '72' }}
-        run: python -m intelligence
-
-      - name: Dispatch signal push notifications
-        if: ${{ success() }}
-        continue-on-error: true
-        env:
-          WORKER_URL: ${{ secrets.TECHPULSE_WORKER_URL }}
-          WORKER_API_SECRET: ${{ secrets.TECHPULSE_WORKER_SECRET }}
-        run: |
-          if [ -z "$WORKER_URL" ] || [ -z "$WORKER_API_SECRET" ]; then
-            echo "WORKER_URL or WORKER_API_SECRET not set — skipping signal push dispatch"
-            exit 0
-          fi
-          echo "Dispatching signal push alerts to Worker..."
-          response=$(curl -s -w "\n%{http_code}" -X POST \
-            "${WORKER_URL}/push/signals/dispatch" \
-            -H "Authorization: Bearer ${WORKER_API_SECRET}" \
-            -H "Content-Type: application/json" \
-            --max-time 30)
-          http_code=$(echo "$response" | tail -1)
-          body=$(echo "$response" | head -n -1)
-          echo "HTTP $http_code"
-          echo "Response: $body"
-          if [ "$http_code" != "200" ]; then
-            echo "Warning: signal dispatch returned non-200, but continuing (continue-on-error)"
-          fi
